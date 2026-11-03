@@ -44,17 +44,12 @@ dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-xdist>=3.5.0",
-    # Required by tests/test_sdist_packaging.py. Without it that test used to
-    # skip, so `pip install -e ".[dev]" && pytest` went green having never
-    # built an sdist - the one thing it exists to check.
-    "build>=1.0.0",
     "black>=23.9.0,<26",
     # Kept unpinned here; the type gate pins them exactly in the Lint
     # workflow, which is the one place it runs.
     "types-requests>=2.31",
     "ruff>=0.1.0",
     "mypy>=1.6.0",
-    "pre-commit>=3.5.0",
 ]
 
 [project.urls]

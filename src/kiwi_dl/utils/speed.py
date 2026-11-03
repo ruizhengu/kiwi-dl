@@ -113,24 +113,14 @@ class TokenBucket:
 
 
 def make_limiter(kbps: float) -> TokenBucket | NoOpLimiter:
-    """Construct a rate limiter; returns NoOpLimiter when kbps <= 0.
-
-    The union is the 1.x contract and callers may branch on the type, so it
-    stays. Collapsing this to always-TokenBucket was a public behaviour change
-    made to tidy an annotation - `consume` does return immediately at rate 0,
-    but that is an argument about what this package needs internally, not about
-    what it already promised.
-    """
+    """Construct a rate limiter; returns NoOpLimiter when kbps <= 0."""
     if kbps <= 0:
         return NoOpLimiter()
     return TokenBucket(rate=kbps * 1024)
 
 
 class NoOpLimiter:
-    """No-op limiter when rate limiting is disabled.
-
-    Compatibility surface retained for the 1.x series.
-    """
+    """No-op limiter when rate limiting is disabled."""
 
     def consume(self, amount: int) -> None:
         pass

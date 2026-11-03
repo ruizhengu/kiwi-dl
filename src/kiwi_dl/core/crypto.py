@@ -79,11 +79,6 @@ def a32_to_bytes(arr: Iterable[int]) -> bytes:
     return struct.pack(f">{len(arr)}I", *arr)
 
 
-def a32_to_str(arr: Iterable[int]) -> str:
-    """Encode an a32 array to MEGA's URL-safe base64."""
-    return b64_url_encode(a32_to_bytes(arr))
-
-
 def str_to_a32(s: str) -> list[int]:
     """Decode MEGA's URL-safe base64 into an a32 array."""
     return bytes_to_a32(b64_url_decode(s))
@@ -131,63 +126,6 @@ def aes_key_wrap_decrypt(data: bytes, key: bytes) -> bytes:
         cipher = AES.new(key, AES.MODE_CBC, b"\x00" * 16)
         out += cipher.decrypt(data[i : i + 16])
     return out
-
-
-def aes_cbc_encrypt_a32(data_a32: list[int], key_a32: list[int]) -> list[int]:
-    """Encrypt an a32 array with another a32 key."""
-    return bytes_to_a32(aes_cbc_encrypt(a32_to_bytes(data_a32), a32_to_bytes(key_a32)))
-
-
-def aes_cbc_decrypt_a32(data_a32: list[int], key_a32: list[int]) -> list[int]:
-    """Decrypt an a32 array with another a32 key."""
-    return bytes_to_a32(aes_cbc_decrypt(a32_to_bytes(data_a32), a32_to_bytes(key_a32)))
-
-
-# ---------------------------------------------------------------------------
-# Password-based key derivation
-# ---------------------------------------------------------------------------
-
-
-def derive_key_legacy(password: str) -> list[int]:
-    """Legacy MEGA key derivation (account version 1).
-
-    Iteratively encrypts a 16-byte buffer with chunks of the password 65536 times.
-    """
-    pkey = [0x93C467E3, 0x7DB0C7A4, 0xD1BE3F81, 0x0152CB56]
-    password_a32 = bytes_to_a32(password.encode("utf-8"))
-    for _ in range(65536):
-        for j in range(0, len(password_a32), 4):
-            key_chunk = [0, 0, 0, 0]
-            for i in range(4):
-                if i + j < len(password_a32):
-                    key_chunk[i] = password_a32[i + j]
-            pkey = aes_cbc_encrypt_a32(pkey, key_chunk)
-    return pkey
-
-
-def derive_key_v2(password: str, salt: bytes, iterations: int = 100_000) -> bytes:
-    """Modern MEGA key derivation (account version 2). PBKDF2-HMAC-SHA512, 32 bytes."""
-    from Crypto.Hash import SHA512
-    from Crypto.Protocol.KDF import PBKDF2
-
-    return PBKDF2(
-        password.encode("utf-8"),  # type: ignore[arg-type]  # bytes ok at runtime
-        salt,
-        dkLen=32,
-        count=iterations,
-        hmac_hash_module=SHA512,
-    )
-
-
-def stringhash(string: str, aeskey_a32: list[int]) -> str:
-    """MEGA-specific string hashing used for the login challenge (v1 accounts)."""
-    s32 = bytes_to_a32(string.encode("utf-8"))
-    h32 = [0, 0, 0, 0]
-    for i in range(len(s32)):
-        h32[i % 4] ^= s32[i]
-    for _ in range(0x4000):
-        h32 = aes_cbc_encrypt_a32(h32, aeskey_a32)
-    return a32_to_str([h32[0], h32[2]])
 
 
 # ---------------------------------------------------------------------------
