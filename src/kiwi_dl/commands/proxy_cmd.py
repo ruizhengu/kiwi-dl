@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import socket
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -250,6 +251,43 @@ def _probe(url: str, timeout: float) -> tuple[bool, str]:
     return True, f"{(time.monotonic() - start) * 1000:.0f} ms"
 
 
+_NOT_STARTED = object()  # still waiting for a thread when the run ended
+_NO_ANSWER = object()  # probing, but no answer before the run ended
+
+
+def _run_probes(urls: list[str], timeout: float, workers: int) -> list:
+    """Probe `urls` concurrently, at most `workers` at a time, within one deadline.
+
+    Daemon threads rather than a ThreadPoolExecutor: `concurrent.futures`
+    joins its workers at interpreter exit, so one probe stuck in a connect or a
+    DNS lookup held the process open for its whole timeout after the report was
+    printed - and Ctrl-C printed "Aborted!" and then hung for the same minute.
+
+    The run gets one connect timeout per WAVE of probes: a pool bigger than the
+    thread cap queues the rest, and a single-timeout budget would end with
+    queued entries never given a socket. The deadline still matters on its own,
+    because `create_connection` times the connect but not the `getaddrinfo` in
+    front of it.
+    """
+    results: list = [_NOT_STARTED] * len(urls)
+    slots = threading.BoundedSemaphore(workers)
+
+    def probe(index: int, url: str) -> None:
+        with slots:
+            results[index] = _NO_ANSWER
+            results[index] = _probe(url, timeout)
+
+    threads = [
+        threading.Thread(target=probe, args=(i, url), daemon=True) for i, url in enumerate(urls)
+    ]
+    for thread in threads:
+        thread.start()
+    deadline = time.monotonic() + timeout * -(-len(urls) // max(1, workers))
+    for thread in threads:
+        thread.join(max(0.0, deadline - time.monotonic()))
+    return list(results)
+
+
 @proxy_cmd.command("test", short_help="Probe every proxy in the pool for reachability.")
 @click.pass_context
 def proxy_test(ctx: click.Context) -> None:
@@ -258,8 +296,6 @@ def proxy_test(ctx: click.Context) -> None:
     Exits non-zero when nothing is reachable, so `kiwi-dl proxy test && kiwi-dl download
     ...` runs the transfer only when the pool can actually carry it.
     """
-    from concurrent.futures import ThreadPoolExecutor, wait
-
     from ..proxy.runtime import _urls_from_config
 
     cfg = ctx.obj["config"]
@@ -284,14 +320,7 @@ def proxy_test(ctx: click.Context) -> None:
     # hang the command outright.
     timeout = cfg.timeout_seconds
     workers = min(len(entries), MAX_PROBE_THREADS)
-    executor = ThreadPoolExecutor(max_workers=workers)
-    try:
-        futures = [executor.submit(_probe, e.url, timeout) for e in entries]
-        wait(futures, timeout=timeout * -(-len(entries) // workers))
-    finally:
-        # Not `with`, whose __exit__ joins the workers: the entire point of the
-        # deadline is to return the report while a probe is still stuck.
-        executor.shutdown(wait=False, cancel_futures=True)
+    results = _run_probes([e.url for e in entries], timeout, workers)
 
     # SafeTable, not Table, for the same reason as `proxy list`: these URLs come
     # from `proxy import` (an arbitrary file), so one poisoned line with an
@@ -306,21 +335,17 @@ def proxy_test(ctx: click.Context) -> None:
     table.add_column("Reachable")
     table.add_column("Latency / reason", style="kiwi.muted")
     reachable = 0
-    for entry, future in zip(entries, futures, strict=True):
+    for entry, result in zip(entries, results, strict=True):
         # `_safe_source`, not the raw url: a pooled proxy routinely carries
         # `user:pass@` and this table gets screenshotted into bug reports.
-        # `done()` alone is a trap: shutdown cancels every still-queued probe,
-        # and a CANCELLED future is `done()` - so `.result()` raised
-        # CancelledError and destroyed the whole report, the probes that DID
-        # answer included. A cancelled entry also must not be called dead: it
-        # was never given a socket, and "no" next to a working proxy is how
-        # someone deletes a good one.
-        if future.cancelled():
+        # An entry that never got a socket must not be called dead: "no" next
+        # to a working proxy is how someone deletes a good one.
+        if result is _NOT_STARTED:
             ok, detail = False, "not probed within the run budget"
-        elif future.done():
-            ok, detail = future.result()
-        else:
+        elif result is _NO_ANSWER:
             ok, detail = False, f"no answer within {timeout}s"
+        else:
+            ok, detail = result
         reachable += ok
         table.add_row(_safe_source(entry.url), "yes" if ok else "no", detail)
     _console.print(table)
