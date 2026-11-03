@@ -1,42 +1,24 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-Please do not open public GitHub issues for security vulnerabilities.
+Please do not open a public issue for a security problem. Use GitHub's private
+vulnerability reporting on [ruizhengu/kiwi-dl](https://github.com/ruizhengu/kiwi-dl),
+or contact [@ruizhengu](https://github.com/ruizhengu).
 
-Use GitHub private vulnerability reporting if it is enabled for the repository.
-If private reporting is not available, contact the author through the GitHub
-profile:
+Include what the problem is and its impact, how to reproduce it, and a fix if
+you have one. Remove link keys (the part after `#`), proxy credentials and
+private paths from anything you paste.
 
-https://github.com/KiaroSama
+## Supported versions
 
-Include:
-
-- A description of the issue and its impact.
-- Steps to reproduce.
-- A suggested fix, if one is known.
-- Any relevant logs with secrets, account details, share keys, and local private
-  paths removed.
-
-## Supported Versions
-
-| Version | Supported |
-| --- | --- |
-| 1.0.x | Yes |
+Only the latest release is supported.
 
 ## Scope
 
-In scope:
+In scope: link and key handling, the network and proxy code, file integrity
+checks, and anything that could overwrite or delete local files or leak a link
+key or proxy password.
 
-- Credential storage and decryption.
-- Network and protocol implementation.
-- File integrity verification.
-- Local file overwrite or deletion risks.
-- Privilege escalation through CLI or launcher behavior.
-
-Out of scope:
-
-- Issues in MEGA's own service.
-- Issues in upstream Python dependencies. Report those to the dependency
-  maintainers.
-- Local attacks requiring already-compromised user accounts.
+Out of scope: MEGA's own service, and problems in third-party dependencies
+(report those upstream).

@@ -1,212 +1,55 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 - unreleased
 
-### Changed
-- **macOS is now a tested platform, and Windows is not.** CI runs the full suite on `macos-latest` (Apple Silicon) and Ubuntu, on Python 3.10 through 3.14, plus a smoke test of the installed `mb` command. Four tests could not pass on a Mac and are fixed without changing what they check: three per-client streaming-cap tests needed a second loopback address, which macOS does not configure (only `127.0.0.1` exists there), so the second peer is now reported to the server under another address instead of dialled from one; and the secure-log test that simulates a failing `os.fstat` replaced it process-wide, which also broke pytest's own output capture, so the failure is now injected only into `secure_log`.
-- **Smart proxy now behaves like MegaBasterd's SmartProxy: direct first, the pool after a 509.** With `smart_proxy_enabled`, every request — MEGA API calls and chunks — used to go through a proxy re-picked at random per request from the first byte, so a good proxy was dropped after every chunk and a quota block was handled as an expired URL. The new `smart_proxy_mode` (default `on-509`) downloads direct until a chunk gets HTTP 509, then sends every download of the command through the pool for `smart_proxy_window_seconds` (default 3600, cut short to MEGA's own `X-MEGA-Time-Left` and ended early when the local network route changes) before trying direct again. Each worker keeps its proxy until it fails; a proxy that answers a 509 or another HTTP error is skipped by everyone for `smart_proxy_ban_seconds` (default 300, `0` for the rest of the command), while a timeout, dropped connection or 429 only sends that one worker to another proxy. When a worker has no proxy left it goes direct and starts over. `always` keeps chunks on the pool from the first byte; `off` never uses it. MEGA API calls now stay direct unless `force_smart_proxy` is on: an anonymous API call keeps working while the transfer quota is spent, so proxying it only hands the link to more third parties. `force_smart_proxy` keeps its meaning — never direct, for anything.
-- **Stored account credentials must be re-added.** The account vault now records the scrypt cost inside each encrypted credential instead of assuming a constant, which is what makes the cost raisable at all - and it is raised from 2**14 to 2**15. Credentials written by earlier versions are not read: `mb account remove` then `mb account add` restores them in seconds, and opening one reports the old format explicitly rather than claiming a wrong passphrase. The cipher is unchanged (AES-256-GCM), and the KDF parameters read out of the vault file are range-checked, so a hand-edited file cannot force an unbounded scrypt cost.
+kiwi-dl starts from MegaBasterd-CLI 1.2.0 (KiaroSama/MegaBasterd-CLI at
+`c4559ec`), cut down to downloading public MEGA links. The history before that
+point is in the [upstream changelog](https://github.com/KiaroSama/MegaBasterd-CLI/blob/main/CHANGELOG.md).
 
 ### Added
-- **A failed MAC check after a proxied download re-fetches only the proxied chunks.** MEGA's CDN URLs are plain http, so a proxy can hand back altered bytes, and the only thing that notices is the whole-file MAC — which cannot say which chunk is wrong, so the advice was to delete everything and start over. Each committed chunk now records which proxy served it, and a failed check bans those proxies and fetches just those chunks again, once; direct chunks are trusted, and a second failure is reported as before. The record survives a resume. Only a 16-hex fingerprint of the proxy's `scheme://host:port` is stored in the `.mbstate` file — never the proxy URL, whose user and password stay out of it entirely.
-- `quota_budget_seconds` (default `0`) bounds how long a download command may wait out MEGA's transfer quota when no proxy can take over — no pool, or every proxy banned or failing. `0` stops at once with the reset time; otherwise blocked workers re-check direct at most once a minute, the time is counted once for the whole command however many workers wait, and a route change ends the wait. `mb download` exits `3` when every failed item was stopped by the quota, so a script can tell "retry after the reset" from a real failure (still `1`). Folder downloads whose only failures are quota stops report the soonest reset.
-- `mb info <folder-url> --json` prints the whole answer as one JSON object on stdout, and for a folder share it includes a `files` array: `path`, `size` and `handle` per file. There was no machine-readable way to see inside a public folder link — `info` gave only a count and a total, `ls` needs an account, and `download --select` prints the list as human text inside a download command, so a consumer had to answer `none` and regex the table. `size` is an integer number of bytes, never a formatted string, and `path` is the exact string `--include` matches and a download writes, taken from the downloader itself rather than a second implementation. No account, no MFA, and nothing is created on disk.
-- `mb account logout [EMAIL] [--all]` ends a stored session: it invalidates the session server-side AND deletes the local cache. There was no way to do either — a cached session lived until MEGA expired it. Both halves are needed: deleting the file alone leaves a token MEGA still honours, and invalidating alone leaves a dead file the next command has to probe and discard.
-- `mb proxy test` probes every pooled proxy concurrently and reports which ones answer, with the latency or the reason. The pool was write-only in practice: `proxy list` shows the entries, but a freshly fetched list has all-zero counters, so the only way to learn an entry was dead was to start a transfer and watch it fail. It exits non-zero only when nothing is reachable, so it can gate a transfer. The check is TCP reachability, not a full CONNECT/SOCKS handshake, which would have to tunnel to a third-party host to find out; stored credentials are redacted in the table.
-- A batch-completion hook, `all_finished_command`, run ONCE when a whole `download`, `upload` or `queue run` finishes, with `<download|upload|queue> <succeeded> <failed>` appended as three arguments. The existing per-file `run_command` cannot express this - the last file's hook has no way to know it was the last - which is what "shut the machine down when everything is done" needs. It never runs for an empty batch, never once per parallel worker, and a hook that fails is reported without failing the batch.
-- A quota block is now escalated to the proxy pool instead of waited out: the block belongs to the exit IP that hit it, so when a pool entry is available the next attempt re-selects through it rather than sleeping on a route known to be blocked. Exactly one such retry, so a single-proxy pool cannot burn the attempt budget. `force_smart_proxy` is unaffected - this decides only *when* to retry, never whether the socket may be direct.
-- The quota wait also ends early when the local route changes (VPN reconnect, redial, interface swap), since the remaining backoff is pointless once the exit IP can differ. Detection is a local routing-table lookup that sends no packet and contacts no third party; a "what is my IP" service would answer more precisely at the cost of telling a host you did not choose that you are downloading, so one is deliberately not used. A public IP that changes behind NAT stays invisible and waits the backoff out as before. Neither change adds an attempt or a second of waiting.
-- Logging in once is enough: the session is stored encrypted under the same passphrase that already unlocks the account vault, so the cloud commands and `mb share` reuse it instead of logging in (and re-prompting for 2FA) every time. A stored session is verified before it is trusted, and an expired one falls back to a normal login. The file is named after a hash of the account, and its contents stay encrypted at rest.
+
+- `mg-dl URL [-o DIR]`: the download command at the top level. `kiwi-dl`
+  holds `download`, `info`, `proxy` and `config`.
+- SmartProxy for downloads, after MegaBasterd's: direct first; a chunk answered
+  with HTTP 509 sends every download of the run through your proxies for
+  `smart_proxy_window_seconds` (cut short to MEGA's own reset time and on a
+  local network change), then direct again. Each connection keeps its proxy
+  until it fails; a proxy that errors is skipped by everyone for
+  `smart_proxy_ban_seconds`, a timeout or 429 only moves that one connection,
+  and an exhausted pool falls back to direct. `smart_proxy_mode` picks
+  `on-509` (default), `always` or `off`.
+- `quota_budget_seconds`: how long a run may wait for the quota when no proxy
+  can take over (default 0: stop at once with the reset time). Exit code 3
+  when only the quota stopped the run; `--json` records carry
+  `quota_resets_in_seconds`.
+- A file that fails its final MAC check re-downloads only the chunks that came
+  through proxies, once, and skips those proxies. The resume state records a
+  hash of each proxy's address, never its URL or password.
+- SOCKS proxies (`requests[socks]`).
+
+### Changed
+
+- Config, proxies and logs live in `~/Library/Application Support/kiwi-dl` and
+  `~/Library/Logs/kiwi-dl` on macOS (XDG directories on Linux), not in a
+  `User/` folder wherever the command ran. Downloads default to the current
+  folder.
+- Proxies you add are used; there is no separate `smart_proxy_enabled` switch.
+- MEGA API calls stay direct unless `force_smart_proxy` is on.
 
 ### Fixed
-- **`mb stream --port 0` bound the configured port instead of any free one.** The port was resolved with `port or streaming_port`, and `0` is falsy, so asking for an ephemeral port silently got `8080` (or whatever `streaming_port` is) — and failed with "Address already in use" whenever that was taken. `0` now means what it means to the OS: any free port, which the banner already prints. The tests used `--port 0` too, so they all bound 8080 and collided on CI; each now gets its own port.
-- **Running out of MEGA transfer quota was reported as an expired link, two minutes later.** MEGA's storage answers an exhausted quota with HTTP 509, which the downloader filed with 403/410 as "URL expired": it fetched a fresh URL seven times with growing backoff and then failed with a generic `transfer_failed`. A live capture showed why that cannot work — the fresh URL is refused at once, even for one byte — and that the answer carries `X-MEGA-Time-Left`, the seconds until the quota resets. A 509 now stops the download immediately with `TransferQuotaError`: "MEGA transfer quota exceeded (HTTP 509); it resets in about 5h 37m", `error_code: quota_exceeded` and `quota_resets_in_seconds` in `--json` output. Completed chunks stay in the resume state.
-- **Ctrl-C did not stop a download.** Every chunk was submitted to the worker pool up front, the interrupt reached only the main thread, and leaving the pool joins it — which runs every queued chunk first. In a live run, Ctrl-C at ~100 MB of a 1.34 GB file kept downloading for another 115 s, then printed "Aborted!" and exited 1, with the last chunks since the periodic save missing from the resume state. Ctrl-C now stops every running download in the process (including the per-file workers of `-P` and folder downloads), drops chunks that have not started, wakes workers out of retry backoff, saves the resume state with every chunk that committed, and exits 130 as documented. A download stopped any other way also no longer waits out its retry backoff.
-- **Folder links shared by their owner listed as empty and could not be downloaded.** A node's `k` field can carry several `handle:key` items joined by `/` — on a live owner-shared folder it is the owner's item (wrapped with their master key) followed by the share's item (wrapped with the link key, labelled with the shared folder's handle). Every reader took the text after the first `:`, so the base64 decoder got `<key>/<handle>:<key>` and each node was skipped as "key decrypt failed": `mb info` showed no files and `mb download` failed with "No nodes returned for folder share". Folder downloads, `mb info --json`, file-in-folder links and `mb import` now prefer the item named after the shared folder and accept a key only once the node's attributes decrypt with it, since unwrapping with the wrong key yields garbage rather than an error. Single-item keys behave as before.
-- **A non-interactive `--select` run ended in a traceback instead of a clean skip.** Answering the file-selection prompt with something invalid made it ask again, and for a piped consumer stdin was already exhausted — so the end-of-input path escaped as `click.Abort`, whose message is empty, and surfaced as "Unexpected error during folder download" with a raw traceback. End of input now means the same as answering `none`: the folder is skipped, the reason is printed, and the exit code is unchanged.
-- **An unusual digit could crash a response check or a menu prompt.** Two guards used `str.isdigit()` before `int()`, and `isdigit()` is True for superscripts and other Unicode digit forms that `int()` refuses — so the guard let the value through and the conversion raised. One reads MEGA's `Content-Length` header, where the crash landed inside the check that bounds how much of a response is parsed; the other reads the launcher's menu selection, where it produced a traceback instead of the "Invalid selection." the prompt already had. Both now use `str.isdecimal()`, which is true for exactly what `int()` accepts. Decimal digits from any script (e.g. `٣`) still work as before.
-- **A finished transfer row no longer prints an ETA of "Done".** A row that had completed, failed or been cancelled still rendered the ETA column, and filled it with the same word the state column had just used — `… | Done | ETA Done | Elapsed 00:15`. ETA answers how much longer, so a row in a terminal state has no countdown to show; the column is now omitted entirely for those rows and the state column keeps the word. Everything else on the line — bar, percent, bytes and Elapsed — is unchanged.
-- **An empty listing now says WHICH thing is empty.** `No items` was printed for five different situations — an empty account, an empty Cloud Drive, an empty folder you named, a search that matched nothing, and an empty trash — so the output could not tell you which, nor any of them apart from a listing that had quietly returned nothing. Each now says what it means: `Your Cloud Drive is empty.`, `Folder 'photos' is empty.`, `Nothing matched 'invoice'.`, `The trash is empty.` The folder name and search pattern are rendered literally, so a name containing Rich markup cannot restyle the line or abort the render.
-- **`mb ls --all` printed a bare table header on an empty account.** The emptiness check ran before the step that hides the root/inbox/trash nodes, so an account holding only those three got past it, built a table and skipped every row. Found while fixing the message above.
-- **A network hiccup cost you a 2FA prompt.** The cached session is proven with one cheap authenticated call before it is trusted, and any failure of that probe deleted the cached file. But a transport failure is not evidence about the session: dropped Wi-Fi, a dead proxy, a TLS error or a MEGA blip destroyed a session that was still perfectly valid server-side, and the next command demanded a fresh code. The two answers are now told apart — MEGA rejecting the session still drops the file, MEGA never answering keeps it, since by then the request has already been retried five times and the login that would follow cannot reach MEGA either. The session id is taken off the transport in both cases: unproven is not trusted, merely not discarded.
-- **The streaming server would serve a non-loopback bind with no access token.** `mb stream` itself always generated one, and still does — but the rule lived only in the command, while the server accepted a missing token on any address and waved every request through. Anything else constructing the server (the launcher, an embedder) got an unauthenticated HTTP server handing out decrypted content, and the server's own documentation promised the opposite. The check now lives in the server, before the socket is bound so a refusal leaves no listening port behind, and a blank token no longer passes for a present one. No change to the `mb stream` command line.
-- **`mb upload` could never finish.** Every chunk transferred, then registering the node came back `ENOENT (-9)` — so no upload has ever completed. MEGA's upload endpoint returns the completion token as an ASCII string, and it must go back verbatim; it was being base64-encoded a second time, like the attributes and wrapped key in the same request (which genuinely do need encoding). The handle MEGA received was one it had never issued. A non-ASCII token is now refused rather than guessed at, so the resume state is never cleared for a node that was not created.
-- **`mb upload` invalidated the session it had just cached**, the same `logout()`-instead-of-`close()` mistake as the cloud commands, so the next run always found a dead token.
-- **A stale cached session turned into a hard login failure.** When the validity probe rejected a cached session, the dead session id was cleared from the client but left attached to the transport, so the login that followed carried it and came back `ESID (-15)` — the silent fallback this path exists to provide became a fatal error. The transport is cleared and the dead file dropped.
-- **A rejected 2FA code reported "Transfer failed".** MEGA answers a wrong or expired code with the generic `-5`, whose table entry is meaningless during a login and actively misleading — nothing was transferring. It now says the code was rejected and that codes expire every 30 seconds. (Worth noting for future messages: the first wording put the word after "2FA code was", which the secret redactor scrubs on purpose, so the message arrived as "was `<redacted>`".)
-- **2FA was demanded on every single command, including right after answering it.** Six command modules ended the cached session in their teardown — `logout()` sends `{"a":"sml"}`, which invalidates it server-side — so whichever command ran last left the next one to authenticate from scratch. And two of the four login paths never consulted the cache at all: `mb upload` had its own login, and `account info` / `account refresh-all` logged in fresh per account, so `refresh-all` asked for one code per stored account. Every teardown now releases the transport with `close()` and every login path shares `restore_session`/`remember_session`. Two tests pin both halves across all the modules, because the copies-per-command are what allowed the drift. Ending a session on purpose is `mb account logout`.
-  Previously described as two paths; it was six teardowns and four login paths. `mb account add --verify` logged in — answering a 2FA challenge to do it, which is precisely the moment the account is proven — and then invalidated that session server-side in its teardown. `mb upload` had its own login that neither read nor wrote the cache, so even a saved session would not have been reused. The three paths now share `restore_session`/`remember_session` from `core.session_store`; a per-command copy is what let two of them skip it. A verified `account add` keeps its session, so the next command needs no code.
-- **An unrecognised answer at a `(y/n)` prompt counted as "no", silently.** Typing one character in the wrong keyboard layout at `Really remove <account>? (y/n) [N]:` scored as a decline, the command returned without printing anything, and the launcher reported "Command completed successfully" — so nothing in the output distinguished "declined" from "done", and the account was still there. Unrecognised answers are re-asked now, and the five commands that return on a decline say so instead of exiting silently.
-- **The launcher menu had no way to remove an account.** `mb account remove` and `mb account refresh-all` existed only on the command line, so from the menu the only apparent way to get rid of an account was `logout` — which keeps the credential on purpose, leaving the account still listed and the feature looking broken. Both are menu entries now, `logout` is labelled for the difference it makes ("end session, keep account"), and its no-session message says the credential was left alone and names the command that deletes it. A test drives every menu action and fails if any `account` subcommand is unreachable, so a command cannot be added to one surface only.
-- **Session reuse never once reused a session.** Logging in cached an encrypted session so later commands could skip authentication, and then every cloud command called `logout()` in its teardown — which sends `{"a":"sml"}` and invalidates that session server-side. The cache was written and killed in the same run, so every command re-authenticated (and, with 2FA on, re-prompted). Nothing ever failed visibly, because falling back to a full login is correct behaviour. Cloud commands now release the transport with `close()` and leave the session alive; `mb account logout` is how you end it.
-- **`mb account remove` left the cached session behind** — a token MEGA still honours, for an account the user was just told was removed, and one no command could reach any more to log out. The credential and the session are cleared together now, through one shared path helper so the writer and the eraser cannot disagree about the filename.
-- **A pre-v2 credential was misread as current-format once every 256 times.** The format check compared a single byte against the version number, but a pre-v2 blob starts with a random salt — so a salt beginning with that byte was treated as a real header, the next three salt bytes were read as scrypt parameters, and the caller got a bare `ValueError: Vault KDF cost out of range: 2**214` instead of the "older format" message. All four header bytes are validated now, and `add_account` no longer trusts the classifier as the last word.
-- **Every authenticated request after login failed with `ESID (-15)`.** The encrypted session id MEGA returns is an MPI - a two-byte BIT-length prefix followed by the integer - and the prefix was being fed into the RSA exponentiation as part of the number. That shifts the ciphertext two bytes and pushes it past the modulus, so the decryption silently ran on `ciphertext mod n` and produced a session id the server rejects. Login itself still reported success, which is why `mb account add --verify` looked fine: it makes no further API call, so nothing ever exercised the session id it had just derived. The four private-key factors and the session id now read through one MPI helper instead of each call site re-deriving the format. The existing unit test passed throughout because its fixture emitted the session id *without* the prefix, matching the broken reader rather than the wire; the fixture is now wire-accurate and fails against the old code.
-- **No test can write into the operator's own `User/` directory any more.** `user_dir()` falls back to the install location when the environment says nothing, and there was no shared test fixture pinning it elsewhere, so a test that drove `account add` through the CLI with a temporary path supplied only as the download directory wrote a real credential into the operator's vault - twice, months apart. The damage was not the junk row: a test credential is encrypted under the test's own passphrase, so it lands as a perfectly valid entry that the operator's passphrase cannot open, and `account add` then refuses every real account on the evidence of a row the operator never created. An autouse fixture now points every path resolver at a per-test directory, and a test asserts the guard itself is in place.
-- Repairing the last stale credential no longer warns about the account being repaired. The count was taken before the replacement, so the one add that fixed the problem still printed "add those accounts again to replace them" - which reads as "it did not work".
-- **A vault holding pre-v2 credentials is repaired by just adding the account again.** Three defects stacked into a dead end. Every failure was reported as "passphrase does not match", so anyone holding credentials written before the format change was told their passphrase was wrong and retyped it forever - no passphrase opens an older-format credential. The message also quoted a version number taken from byte 0 of the blob, which in that format is a random salt byte, so the same file claimed a different generation every run. And the guard that keeps the vault from splitting across two passphrases treated an unreadable credential as evidence about the passphrase, blocking every add: the vault could only be recovered by removing each stale entry, one confirmation at a time, before anything could be added. The guard now consults a readable credential (there is nothing to be consistent with otherwise), re-adding an account whose stored credential is unusable replaces it, and a readable duplicate is still refused so working credentials are never overwritten. A genuinely wrong passphrase still reports as one.
-- Prompt brackets are punctuation and stay uncoloured, so `[1]` highlights the `1` instead of lighting up all three characters. The braces around navigation hints already behaved this way, so the two shapes on one line no longer disagree.
-- The launcher no longer asks you to press Enter to return to the menu after a command: the outcome line is printed immediately above and the menu is redrawn immediately below, so the keypress conveyed nothing.
-- Bracketed defaults and navigation hints are coloured in every prompt, including the password prompts (`[blank to skip]` used to arrive plain next to a green `[Y]`), because the launcher and the CLI now share one prompt styler.
-- Prompts follow one convention everywhere. The launcher rendered `(y/n) [Y]` while the CLI used Rich's `[y/n] (n)` and an uncoloured password prompt, which was visible in a single session because the launcher runs the CLI. Confirmations, text prompts and password prompts now share the launcher's shape and colours.
-- Leaving a required launcher field blank no longer abandons the whole wizard and discards the earlier answers; it re-asks that one field. `0` remains the only way backwards, and it always moves exactly one step.
-- Account login works again. Every login that went through the RSA session path failed with "Malformed RSA private key in login response": the account's private key is wrapped block by block with a zero IV, but it was being unwrapped as one chained CBC stream, so only its first 16 bytes survived and the four length-prefixed integers no longer parsed. The same path also rendered the decrypted session id at the full modulus width, which prepended padding bytes and truncated the id; it is now derived the way MEGA's own client derives it.
-- **A dropped connection cost you the cached session, and therefore a fresh 2FA code.** The cached session is proved with one cheap authenticated call before it is trusted, and *any* failure of that call was read as "this session is dead" — so the file was deleted. But a transport error means MEGA never answered: the session's validity is unknown, not disproven, and by then the request has already been retried five times, so the login that follows cannot reach MEGA either and the code you type is thrown away. A refusal *from* MEGA still drops the file; a network fault now keeps it, and reuse resumes once the connection does. The dead session id is taken off the transport either way, since unproven is not the same as trusted.
 
-### Security (deep audit rounds)
-- The streaming server now refuses a non-loopback bind that has no access token, instead of documenting that it requires one. The rule lived only in `mb stream`, which generates a token for a public host; `StreamingServer` itself accepted `auth_token=None` on any address and then waved every request through, so any other caller got an unauthenticated server handing out decrypted content. The check runs before the socket is bound, so a refusal leaves nothing listening, and a blank or whitespace token no longer passes for a real one. `mb stream` is unaffected — it already supplied a token, and the documented behaviour in `docs/USAGE.md` and `docs/COMMANDS.md` was already this.
-- Closed an SSRF in ELC and MegaCrypter link resolution: the service URL comes from the untrusted link, and although the initial URL was validated, redirects were followed automatically, so a hostile host could answer `307` and have the credential body (ELC user/API key, or the MegaCrypter link password and session) re-POSTed to loopback, link-local, or RFC1918 addresses. Every hop is now validated with automatic redirects disabled, matching the DLC path.
-- The MegaCrypter host-supplied download URL is now validated (HTTPS-only, no userinfo, globally-routable host) before any fetcher connects to it, for both `download` and `stream`.
-- Integrity verification now re-computes the file MAC from the bytes on disk instead of from the per-chunk MACs stored in the resume state, so a resumed file whose contents no longer match — a destination replaced between runs, or a silent disk write fault — fails verification instead of reporting success. A missing or truncated file fails closed.
-- A resume state is reused only when it records the exact decryption key of the current transfer; a state that omits or mismatches the key is refused rather than trusted, and a state written by a newer format version is left intact and refused instead of being deleted.
-- The MegaCrypter password-hashing iteration count from a hostile host is bounded before the exponent is materialized, so a crafted descriptor can no longer force a multi-gigabyte allocation.
-- Exception tracebacks printed to the console are now redacted the same way as the log file, so a secret inside an error can no longer reach the terminal in cleartext; diagnostics and Rich tracebacks go to stderr so `--json` stdout stays valid JSONL.
-- `config show`/`get` now redact any credential-bearing value (proxy URLs with `user:pass@`, authorization headers), and `proxy list`/`remove` redact schemeless proxy credentials that previously printed in full.
-- Link keys are validated strictly: a key with characters outside unpadded URL-safe base64 (commas, whitespace) or the wrong decoded length is rejected with a clear message instead of being silently truncated or reshaped into a different key.
-- `config show` and `proxy list` render untrusted values as plain text, so a stored config value or a fetched/imported proxy entry containing Rich markup can no longer restyle the output or crash the command.
-
-### Fixed (deep audit rounds)
-- A discarded or unusable resume state could leave a stale high revision on disk that silently blocked every save of the replacement transfer, so a long download persisted no resume state and an interruption lost all progress; the leftover is now cleared and an unreadable-as-state file no longer constrains saves.
-- Fixed corrupt output when streaming a byte range whose start is not block-aligned and the first upstream block is shorter than the alignment skip: the served data is no longer shifted backward, and a short response is reported instead of silently truncated.
-- The launcher now survives Windows PowerShell 5.1: the Python-interpreter probe and the pip/ensurepip step no longer abort on a candidate's stderr (the Microsoft Store `python3` alias, a conda/venv banner, or a `pip` warning), so the `py → python3 → python` fallback and the pip recovery both work on that host. A CI job now smoke-tests the launcher under 5.1.
-- `account add` and machine-mode (`--json`) commands no longer hang forever waiting on a hidden password prompt with closed/redirected stdin; they fail with a message telling you to pass `--password`/`--vault-passphrase`.
-- `account add` with the wrong vault passphrase no longer mixes credentials encrypted under two different passphrases into one vault: the passphrase is verified against an existing credential before anything is added.
-- A wrong vault passphrase now reports a clear message instead of an empty `Error:` line under a raw decryption traceback.
-- `proxy fetch` and `proxy serve` now exit non-zero when they fail, so a wrapper script can detect the failure.
-- A link-service proxy is credited only after the response body is proven usable and blamed when the request fails, so a captive portal or dead proxy no longer climbs the pool's success ranking; rejected streamed responses are closed instead of stranding the connection.
-- The launcher no longer leaves the tail of a quoted secret (`--password "…"`, `--token "…"`, etc.) unredacted in its log, and no longer creates a stray `Data\sessions` directory on non-Windows CI runs.
+- Folders shared by their owner listed as empty and could not be downloaded:
+  a node's key field can hold several `handle:key` items, and only the first
+  was read.
+- Ctrl-C kept downloading the rest of the file for minutes, then exited 1. It
+  now stops within a second, keeps every finished chunk, and exits 130.
+- HTTP 509 was treated as an expired link: seven pointless retries, then a
+  generic failure two minutes later with no reset time.
 
 ### Removed
-- Dropped the declared `colorama` dependency: nothing in the project imports it, and `click` already pulls it in transitively on Windows.
 
-### Added
-- `mb config unset <key>` clears a nullable setting to JSON null; `config set <key> null|none` also stores null while any other string (including a URL or the literal `null-value`) is kept verbatim.
-- `mb queue reset` recovers from a corrupt queue by writing a fresh empty one (the corrupt original is preserved as `queue.json.corrupt.<timestamp>.json`).
-- Machine-mode failure records now carry a stable `error_code` plus sanitized identifying fields (`name`, `path`, redacted `source`, `account`).
-
-### Fixed
-- Machine (`--json`) output is now thread-safe: each JSONL record is sanitized and written as one atomic line under a lock, so parallel `-P N` download/upload output can never interleave into corrupt JSON. Every emitted value is passed through a central recursive secret sanitizer (MEGA link keys, SIDs, passwords, vault passphrases, MFA codes, ELC/API keys, proxy passwords, and secret query params — including inside `str(exc)` and nested structures); intentional `share_link` output keeps its public key.
-- `--auto-account` now runs truly in parallel for flat files with `-P N` (previously it silently downgraded to sequential): each transfer gets its own isolated `MegaAPIClient`/HTTP session, accounts log in once (no repeated MFA), the free-space ledger and account store are thread-safe, and quota-error re-planning is bounded per account.
-- The uploader resets all per-file state (`_stop_event`, byte/chunk counters, completion token, speed meter) at the start of every `upload_file`, so a failed or canceled file under `upload_directory(keep_going=True)` no longer poisons the next file (which previously aborted with "canceled while hashing").
-- `config show`/`get` redact `connect_proxy_password` and the nested `elc_accounts` credentials; `config set` never echoes the value; `config get`/`set`/`unset` exit non-zero on unknown keys, invalid values, and deprecated keys.
-- `ConfigStore` writes are now concurrent-safe (shared cross-process file lock, reload-before-write, unique fsync'd temp file), sharing the lock utility with `QueueManager`; the account vault save also uses a unique fsync'd temp file so parallel `--auto-account` quota refreshes cannot collide.
-- A malformed or invalid-schema `queue.json` (non-list root, non-object entries, missing required fields, unknown type/status, wrong field types) is treated as corruption: the original is preserved byte-for-byte and backed up once, mutations are blocked with a non-zero exit and a clear message, and no queue key is created while integrity is unknown.
-- API/HTTP sessions are closed on every failed-login path in normal and queued uploads (no leaked sessions/descriptors), and successful cached clients close exactly once.
-
-### Changed
-- An unknown job type/status in the queue file is now a schema violation (corruption) rather than a silently-run item.
-
-### Added (progress, resume, queue, config — earlier audit rounds)
-- Selective folder-link downloads (parity with the original MegaBasterd folder-link dialog): repeatable `--include`/`--exclude` glob filters over folder-relative paths, plus an interactive `--select` picker (`all` / `none` / `1,3-5`) on the `download` command.
-- One unified EVdlc-style progress system (`TransferProgress` controller + shared renderer) for every transfer mode: single/parallel/file-in-folder downloads, folder downloads, single/parallel/directory uploads, and queue runs. Single transfers render as a one-row group of the same view; huge folders paint a bounded set of rows without losing totals; quiet mode (`-q`) skips the live view.
-- Independent wall-clock `Elapsed` in every transfer mode: owned by the progress view's monotonic clock, refreshed by the renderer's own ticker even while producers are silent (stalls, retries, quota waits, finalization), frozen exactly at terminal state, and shown even on narrow terminals.
-- Zero-byte upload support (single, directory, and queued): the completion token comes from an empty `POST <url>/0` per the MEGA protocol; zero-byte files also stream correctly (`Content-Length: 0`, no invalid upstream range request).
-- Versioned upload resume identity (v2): path, size, `mtime_ns`, platform file id, and a FULL streaming SHA-256 of the content (bounded memory, cancellable, hashing cost logged for very large files). Resume and pre-finalization re-checks detect a change to any byte anywhere in the file — including zero-byte files, which are revalidated after the completion token and before node registration. Legacy states without an identity, and v1 sampled identities, are never treated as strict and restart fresh.
-- Interrupted-queue recovery: `queue run` leases jobs with a run id + heartbeat, recovers jobs abandoned by a crashed/killed run as `interrupted`, re-runs them automatically, and never steals a live lease. New `queue retry <id|all>` returns failed/interrupted/canceled jobs to pending while preserving encrypted link passwords.
-- Centralized upload success pipeline shared by sequential, parallel, flat/structured directory, queue, and auto-account uploads: success output, JSONL upload log, post-transfer command, optional `--share` link (directories share every uploaded file), and account attribution. Share/hook failures are reported separately and never turn a successful upload into a failure.
-- Centralized config validation for `config set` and hand-edited files (ports, timeouts, worker counts, speed limits, quota waits, log settings, and typed optional keys including nested `elc_accounts`) with safe fallbacks and warnings that never echo secret values. Deprecated/unknown keys warn once per process, and the new `config migrate` command rewrites old config files without them.
-- Machine-readable `--json` mode on `download` and `upload`: stdout carries only JSONL result records (success/failed/skipped, type, name, path, size, elapsed, handle, account, share link; sources key-redacted), human output and progress go to stderr — a stable interface for external callers such as EVdlc.
-- Process/thread-safe queue: every queue mutation runs behind an instance mutex plus a cross-platform file lock with a bounded timeout, reloads the newest state before writing (a heartbeat can never revert a finished job, a stale writer can never clobber newer statuses), saves through unique fsync'd temp files, and `queue run` claims jobs atomically so two concurrent runs can never execute the same job.
-- Isolated API clients for parallel downloads: each parallel transfer (and each folder worker, via `MegaAPIClient.clone()`) owns its own HTTP session and request sequence; every client is closed on completion. The shared proxy pool is explicitly thread-safe.
-- `--auto-account` now re-plans after quota changes: accounts are selected immediately before each file from a live reservation ledger; a `QuotaError` refreshes that account's real quota and retries the same file on another suitable account (bounded to one attempt per account), and `--keep-structure` trees stay on one account or fail clearly.
-- The overall progress state now reflects item outcomes: any failed or unfinished item makes the final Overall row `Failed` (matching the exit code) even when the command finished without an exception; queue progress rows always end in the job's real status, including canceled on Ctrl+C.
-
-### Fixed
-- Fixed a permanent hang in the bandwidth token bucket: `consume(amount)` with `amount` larger than the burst capacity (for example a 1 MiB upload chunk under a small rate limit) now drains incrementally and always makes forward progress.
-- Speed limits are now true aggregate caps: all parallel workers of one command share a single limiter, instead of multiplying the configured limit per file.
-- Parallel uploads are now thread-safe: each parallel file gets an isolated API client and HTTP session that reuses the authenticated session material (no MFA re-prompts, no shared request-sequence races), and worker cleanup no longer invalidates the shared session.
-- Unified default-account resolution across upload, queue, share, and cloud commands: `--account` → vault default (`mb account default`) → legacy `config default_account`, with a one-time warning when the two stored defaults disagree.
-- `--auto-account` now builds the file manifest first, selects by real per-file size (whole tree for `--keep-structure`), keeps an in-memory free-space ledger that decrements as files are assigned, refreshes cached quota after quota errors, and closes every temporary client.
-- Failed transfers now produce non-zero exit codes in `download`, `upload`, and `queue run`; `--keep-going` continues processing but no longer reports overall success. Interactive selection answered with `none` is a documented skip, not a failure.
-- Parallel downloads with identical or sanitization-colliding names can no longer race into the same destination/state file: final destinations are reserved atomically before workers start.
-- Structured (`--keep-structure`) directory uploads now report real per-file and overall progress from a pre-computed manifest instead of a no-op callback, and run the same success pipeline per file.
-- Upload result elapsed no longer resets on upload-URL refresh/retry and includes finalization; download elapsed includes integrity verification.
-- `auto_resume=false` is honored by both downloads and uploads; `user_agent` is applied to API and transfer requests and defaults to the installed package version (no hard-coded version drift).
-- Clipboard watching falls back to PowerShell/pbpaste/wl-paste/xclip when `pyperclip` imports but has no usable backend (not only when it is missing).
-- Post-transfer hook commands are parsed with POSIX rules on Linux/macOS and Windows rules on Windows, never use `shell=True`, append the transferred path as exactly one argument, and no longer write hook arguments (which may carry secrets) to logs.
-- Concurrent resume-state saves no longer crash with `PermissionError` on Windows (serialized save with brief replace retry).
-- Fixed an intermittent deadlock between the folder-download live view and Rich's auto-refresh thread (lock-order inversion) that could freeze the progress UI and hang the CLI at completion.
-- Fixed inflated download speeds at the start of resumed folder downloads: the live view no longer counts previously-downloaded bytes as instantaneous speed, and the overall speed is derived from the per-file meters (or a fresh backend hint) instead of a duplicate aggregate meter.
-- Fixed the same lifetime-average speed bug on the upload side: upload progress now flows from a steady 0.5 s reporter thread with a rolling-window rate whose baseline excludes resumed chunks, instead of firing once per completed chunk future with `bytes_done / elapsed`.
-
-### Deprecated
-- Removed the never-functional config keys `chunk_size_kb`, `smart_proxy_autorefresh_minutes`, `smart_proxy_timeout_seconds`, and `smart_proxy_random`; `config set` now explains why and old config files load with a warning.
-
-### CI
-- The mypy-clean module set (CLI, commands, queue, accounts, UI, and new utility modules) is now a required type-check gate; the legacy full-tree run stays advisory. Local coverage regression below 55% now fails the test run (baseline ~61%).
-
-### Security
-- Fixed a folder-download path-traversal weakness: remote node names can no longer become `.`, `..`, empty, or contain path separators, and every download destination is verified to stay inside the chosen output directory.
-- Added MBCR v2 for the local file Crypter with authenticated chunk ordering, a final-chunk marker, original-length validation, and whole-file sequence integrity (detecting truncation, reordering, duplication, and tampering); legacy v1 files remain readable but do not provide whole-file sequence integrity.
-- Required authentication for non-loopback streaming and made `Authorization: Bearer` the default token method; the token is generated automatically for non-loopback binds and is never written to logs.
-- Prevented stream-token leakage from both the CLI startup argument log and the PowerShell launcher log and transcript.
-- Switched DLC container resolution to HTTPS-only transport with bounded, manually validated redirects, same-origin enforcement, approved-origin validation, and rejection of credentials, non-global IPs, and unexpected ports.
-- Encrypted persisted queue passwords at rest with AES-256-GCM under a locally stored key, and hardened queue-key creation, length validation, legacy migration, and recovery so existing encrypted secrets are never orphaned.
-- Unified the local CONNECT proxy and plain-HTTP forward destination policy (host allow-list and port policy applied to both).
-- Improved redaction of sensitive identifiers and command-line arguments (including account emails and stream tokens).
-
-### Changed
-- Downloads now preserve an existing unrelated file by default and write to a unique destination name (for example `name (1).ext`); a valid resumable partial still resumes.
-- Added an explicit `--overwrite` (alias `--force`) option to `download` for in-place replacement.
-- Stream query-string tokens (`?token=`) are disabled by default and require explicit opt-in via `--allow-query-token`.
-- Documentation updated (README, command reference, usage guide) to match the hardened download, streaming, and DLC behavior.
-
-### Testing
-- Expanded regression coverage for path containment, Crypter tamper resistance, streaming authentication, queue-secret recovery, DLC redirect/SSRF behavior, resume safety, proxy destination policy, and launcher token redaction.
-- Completed a live public-folder validation covering download, repeat-download/overwrite, resume, streaming with HTTP Range requests, and log redaction. Account login, upload, cloud mutations, MFA, DLC, ELC, and MegaCrypter end-to-end flows were not validated live.
-
-## v1.2.0 - 2026-05-25
-
-### Added
-- Added richer CLI file logging with per-run identifiers, command context, process and thread details, source module/function/line metadata, runtime path details, non-secret configuration summaries, and shutdown timing.
-- Added launcher-to-CLI run id propagation so launcher logs and CLI logs from the same run can be correlated.
-- Added regression coverage for contextual log records and expanded redaction behavior.
-
-### Changed
-- Bumped the package version to `1.2.0`.
-- Updated README and usage documentation to describe the expanded logging metadata and privacy behavior.
-
-### Security
-- Expanded log redaction for MEGA links, MegaCrypter links, API-style query secrets, session-like fields, cookie-like fields, passphrases, and token-like payload values.
-- Logs still include local paths and operational details, so they should continue to be treated as private.
-
-## v1.1.0 - 2026-05-22
-
-### Added
-- Added Windows Hashcash acceleration support with a bundled PowerShell/.NET helper and optional native C helper source.
-- Added `upload --keep-going` for directory uploads so successful files can be kept when some items fail.
-- Added encrypted session persistence with passphrase-protected session files.
-- Added support for clearer live multi-file progress output during folder downloads.
-- Added transfer state format versioning for safer future resume-state changes.
-
-### Changed
-- Bumped the package version to `1.1.0`.
-- Clarified that download and upload speed limits are global caps for each command run.
-- Moved upload resume state into project user data instead of writing it next to source files.
-- Improved public `info` help text to clarify that it does not require account login or MFA.
-- Updated packaging metadata to stop including Windows `.exe` helpers in source package data.
-- Increased CONNECT proxy tunnel join timeout to reduce noisy tunnel shutdowns.
-
-### Fixed
-- Fixed integrity verification so missing chunk MACs fail loudly instead of silently passing.
-- Fixed download resume validation to reject stale state from a different source, destination, or crypto context.
-- Fixed CDN URL refresh locking for downloader workers.
-- Fixed streaming CDN URL refresh and MegaCrypter proxy propagation.
-- Fixed upload URL expiry handling with clearer recovery messages.
-- Fixed cloud, share, queue, and upload paths to support MFA prompts consistently where account login is required.
-- Fixed `import --target` path resolution.
-- Fixed strict boolean config parsing.
-- Fixed malformed MEGA attribute blobs so they return `None` instead of raising low-level crypto errors.
-- Fixed filename truncation to preserve extensions when possible.
-- Fixed legacy and modern link parsing edge cases, including trailing slashes on modern links.
-- Fixed plaintext session loading to require explicit opt-in for old session files.
-
-### Removed
-- Removed the unused `tqdm` dependency.
-- Removed dead downloader URL setter code.
-
-### Security
-- Encrypted saved sessions instead of writing SID, master key, and RSA private key in plaintext.
-- Redacted additional sensitive CLI arguments from startup logs.
-- Hardened CONNECT proxy password comparison and Windows socket binding.
-- Added documentation warning for JDownloader DLC resolution through its HTTP-only upstream service.
+- Uploads, accounts and the credential vault, cloud file commands, streaming,
+  the queue, watch, split/merge/thumbnail.
+- MegaCrypter, DLC, ELC and `mega://enc` links.
+- `proxy fetch` and its bundled public proxy lists, and `proxy serve`.
+- The PowerShell launcher, `Run.ps1` and the `mb` commands.

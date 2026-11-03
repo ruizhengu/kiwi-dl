@@ -1,384 +1,151 @@
-# MegaBasterd CLI
+# kiwi-dl
 
-MegaBasterd CLI is a script-first Python command-line tool for MEGA.nz
-transfers, with a PowerShell launcher for direct source usage.
+Download public MEGA links from the terminal. When MEGA's download quota for
+your IP runs out, kiwi-dl can carry on through proxies you provide, the way
+MegaBasterd's SmartProxy does.
 
-It provides a terminal workflow for downloading public MEGA files and folders,
-uploading through stored accounts, inspecting links, streaming MEGA files over a
-local HTTP server, managing a transfer queue, using proxy pools, and running
-local helper tools such as split, merge, thumbnail, and file encryption.
+> Not affiliated with Mega Limited. kiwi-dl is built on
+> [MegaBasterd-CLI](https://github.com/KiaroSama/MegaBasterd-CLI) by Kiaro Sama
+> (MIT), and its proxy behaviour follows
+> [MegaBasterd](https://github.com/tonikelope/megabasterd).
 
-This project is inspired by [tonikelope/megabasterd](https://github.com/tonikelope/megabasterd)
-and is focused on CLI/source-script usage rather than a desktop GUI.
+## Install
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#requirements)
+macOS (Apple Silicon or Intel) or Linux, Python 3.10 or newer:
 
-## Features
-
-- Interactive PowerShell launcher with colored menus and dependency checks.
-- Public MEGA file and folder downloads.
-- Folder downloads that preserve the MEGA folder hierarchy locally.
-- Selective folder downloads: `--include`/`--exclude` glob filters and an
-  interactive `--select` file picker for folder links.
-- Chunked, resumable transfers using `.mbstate` state files.
-- Live Rich-based transfer progress with colored bars, speed, ETA, and totals.
-- Multi-file parallel download support.
-- Public file, folder, file-in-folder, folder-in-folder, and legacy MEGA links.
-- Password-protected MEGA links.
-- `mega://enc`, `mega://fenc`, `mega://elc`, `.dlc`, and `mc://` MegaCrypter link/container handling.
-- MEGA account storage with encrypted local credential vaults.
-- Cloud operations for account files: list, mkdir, remove, move, rename, search, trash, import, and share.
-- Upload support for local files and folders.
-- Smart proxy pool management, public proxy fetching, and local CONNECT proxy mode.
-- Local HTTP streaming with Range request support.
-- Persistent transfer queue and clipboard watcher.
-- File split/merge helpers with SHA-1 verification.
-- Local AES-256-GCM crypter for files.
-- Windows Hashcash acceleration through the bundled PowerShell/.NET helper,
-  with optional C helper source for building a native executable.
-- Optional thumbnail generation for supported image files when Pillow is installed.
-
-DLC container support uses JDownloader's public DLC service endpoint over HTTPS.
-Redirects are followed only within that same trusted origin, and the DLC master
-key is a known public constant. Still resolve DLC files only on networks you
-trust, because the returned URLs are supplied by that third-party service.
-
-## Requirements
-
-- Python 3.10 or newer.
-- PowerShell 5.1 or PowerShell 7+ for `Run.ps1`.
-- Internet access for MEGA transfers and first-time dependency installation.
-
-Supported platforms: macOS (Apple Silicon) and Linux — CI runs the full suite
-on both, on Python 3.10 through 3.14, on every push. Windows is no longer
-tested.
-
-Python dependencies are listed in [requirements.txt](requirements.txt) and
-[pyproject.toml](pyproject.toml):
-
-- click
-- rich
-- requests
-- pycryptodome
-- tenacity
-- cryptography
-- colorama on Windows
-
-## Installation
-
-Clone the repository:
-
-```powershell
-git clone https://github.com/KiaroSama/megabasterd-cli.git
-cd megabasterd-cli
+```bash
+uv tool install git+https://github.com/ruizhengu/kiwi-dl
 ```
 
-Run the launcher:
+or `pipx install git+https://github.com/ruizhengu/kiwi-dl`. Both put two
+commands on your `PATH`: `mg-dl` to download and `kiwi-dl` for everything else.
 
-```powershell
-.\Run.ps1
+## Download
+
+```bash
+mg-dl 'https://mega.nz/file/ID#KEY'
+mg-dl 'https://mega.nz/folder/ID#KEY' -o ~/Downloads
+mg-dl -i links.txt
 ```
 
-On first run, the launcher checks Python and required modules. If dependencies
-are missing, it asks whether to install them into the project environment. The
-default answer is `Y`.
+Put links in single quotes: the shell treats `#` and `!` specially, and old-style
+`#!` and `#F!` links are common.
 
-Optional editable install:
+- Files land in the current folder unless you pass `-o` or set `download_path`.
+- Run the same command again to resume. Finished chunks are recorded in a
+  `.mbstate` file next to the download, which is deleted once the file is complete.
+- Ctrl-C stops within a second and keeps what has finished.
+- Every file is checked against the MAC in its link key before it counts as done.
+- Folder links: `--select` to pick files, `-I '*.mp4'` / `-X '*.txt'` to filter.
+- `-P 3` downloads three files at once; `-w 8` sets the connections per file;
+  `-l 2000` caps the speed at 2000 KB/s.
+- `--json` prints one JSON record per file on stdout for scripts.
 
-```powershell
-python -m pip install -e .
-mb --help
-```
+## When the quota runs out
 
-After installation, these console commands are available:
+MEGA limits how much one IP may download anonymously. Once it is spent, MEGA's
+servers answer HTTP 509 along with the time until it resets.
+
+**Without proxies**, kiwi-dl stops straight away and tells you when to try again:
 
 ```text
-mb
-mbcli
-megabasterd-cli
+Download failed: MEGA transfer quota exceeded (HTTP 509); it resets in about 4h 38m
 ```
 
-Optional Windows Hashcash native executable:
+The exit code is 3. Run the same command after the reset and it resumes. To wait
+instead of stopping, give it a budget: `kiwi-dl config set quota_budget_seconds 7200`.
 
-```powershell
-.\tools\build_hashcash_windows.ps1
+**With your own proxies**, the download carries on:
+
+```bash
+kiwi-dl proxy add 'http://user:pass@203.0.113.7:8080' 'socks5://198.51.100.2:1080'
+kiwi-dl proxy import proxies.txt     # one per line
+kiwi-dl proxy test                   # which ones answer
 ```
 
-The CLI automatically tries `Bin\hashcash-solver-win64.exe` first when it
-exists. On Windows source runs, it can also use the bundled
-`tools\hashcash_solver_windows.ps1` helper. Set `MEGABASTERD_HASHCASH_NATIVE=0`
-to force the pure-Python fallback. Advanced users can set
-`MEGABASTERD_HASHCASH_SOLVER` to a custom executable path; that executable is
-launched directly, so only point it at code you trust.
+- Downloads go direct until MEGA answers 509. Then every download in the run
+  switches to the proxies for an hour, or less if the quota resets sooner, and
+  goes direct again after that.
+- Each connection keeps its proxy until that proxy fails.
+- A proxy that returns an error is skipped by everyone for 5 minutes. A timeout
+  only moves that one connection to another proxy.
+- If every proxy has failed, kiwi-dl goes back to a direct connection.
+- Link lookups always go direct; only file data goes through proxies.
+- Proxies can alter what they relay. If a file fails its final check, only the
+  parts that came through proxies are downloaded again, and those proxies are
+  skipped.
 
-## Usage
+Using proxies to get around MEGA's download quota is against MEGA's terms of
+service. kiwi-dl ships no proxy lists and cannot promise how much you can
+download; whether and how you use this is your decision.
 
-Open the interactive launcher menu:
+`smart_proxy_mode` changes this behaviour: `always` uses proxies from the first
+byte, and `off` ignores them. `force_smart_proxy true` never connects directly,
+including link lookups.
 
-```powershell
-.\Run.ps1
+## Link info
+
+```bash
+kiwi-dl info 'https://mega.nz/folder/ID#KEY'          # name, size, file count
+kiwi-dl info 'https://mega.nz/folder/ID#KEY' --json   # plus every file's path
 ```
 
-Run direct commands through the launcher:
+## Settings
 
-```powershell
-.\Run.ps1 --help
-.\Run.ps1 info "https://mega.nz/folder/ID#KEY"
-.\Run.ps1 download "https://mega.nz/file/ID#KEY"
-.\Run.ps1 download "https://mega.nz/folder/ID#KEY" -o .\downloads
-.\Run.ps1 download "https://mega.nz/folder/ID#KEY" -I "*.mkv" -X "*sample*"
-.\Run.ps1 download "https://mega.nz/folder/ID#KEY" --select
-.\Run.ps1 upload .\archive.zip --account me@example.com
-.\Run.ps1 stream "https://mega.nz/file/ID#KEY" --port 8080
+```bash
+kiwi-dl config show
+kiwi-dl config set max_workers 12
+kiwi-dl config path
 ```
 
-Run the package directly:
+| Key | Default | What it does |
+| --- | --- | --- |
+| `download_path` | *(current folder)* | Where downloads go without `-o`. |
+| `max_workers` | `8` | Connections per file. |
+| `max_parallel_downloads` | `6` | Files at once (`-P`). |
+| `speed_limit_kbps` | `0` | Total speed cap in KB/s, `0` for none. |
+| `smart_proxy_mode` | `on-509` | `on-509`, `always` or `off`. |
+| `smart_proxy_window_seconds` | `3600` | How long a 509 keeps downloads on proxies (60–86400). |
+| `smart_proxy_ban_seconds` | `300` | How long a failing proxy is skipped; `0` for the rest of the run. |
+| `quota_budget_seconds` | `0` | How long to wait for the quota when no proxy can help. |
+| `force_smart_proxy` | `false` | Never connect directly. |
+| `smart_proxy_url` | *(none)* | Extra proxies, comma-separated. |
+| `run_command` | *(none)* | Run after each finished file, with its path as the argument. |
+| `all_finished_command` | *(none)* | Run once at the end, with `download <ok> <failed>`. |
 
-```powershell
-python -m megabasterd_cli --help
-python -m megabasterd_cli download "https://mega.nz/file/ID#KEY"
-```
+kiwi-dl keeps its config and proxy list in `~/Library/Application Support/kiwi-dl`
+and its log in `~/Library/Logs/kiwi-dl`. On Linux it uses `~/.config/kiwi-dl`,
+`~/.local/share/kiwi-dl` and `~/.local/state/kiwi-dl` (or your `XDG_*`
+directories). Set `KIWI_DL_HOME` to keep everything in one folder instead.
 
-Run installed commands:
+## Exit codes
 
-```powershell
-mb --help
-mb download "https://mega.nz/file/ID#KEY"
-```
-
-## Main Commands
-
-| Command | Purpose |
+| Code | Meaning |
 | --- | --- |
-| `download` | Download public files, folders, containers, and link lists. |
-| `upload` | Upload files or folders to an authenticated MEGA account. |
-| `stream` | Serve a MEGA file through a local HTTP server. |
-| `info` | Show public MEGA link metadata without downloading or logging in. |
-| `share` | Create or remove public links for account-owned nodes. |
-| `ls`, `mkdir`, `rm`, `mv`, `rename`, `search`, `trash`, `import` | Cloud filesystem operations. |
-| `account` | Add, remove, list, set default, and refresh MEGA accounts. |
-| `queue` | Manage and run the persistent transfer queue. |
-| `proxy` | Manage proxy pools, fetch proxy lists, and run CONNECT proxy mode. |
-| `crypter` | Encrypt/decrypt local files and resolve supported container links. |
-| `split`, `merge`, `thumbnail` | Local file utilities. |
-| `watch` | Watch the clipboard and queue copied MEGA links. |
-| `config` | Show, set, reset, and locate configuration. |
+| `0` | Everything downloaded. |
+| `1` | Something failed. |
+| `2` | Bad usage, such as no link given. |
+| `3` | Only MEGA's quota stopped it; try again after the reset. |
+| `130` | Stopped with Ctrl-C. |
 
-Use command-specific help for exact options:
+## Privacy
 
-```powershell
-.\Run.ps1 download --help
-.\Run.ps1 upload --help
-.\Run.ps1 config --help
-```
-
-## Usage Flow
-
-1. Run `.\Run.ps1`.
-2. Let the launcher verify Python dependencies.
-3. Choose an interactive menu option or run a direct CLI command.
-4. Configure accounts or settings when needed.
-5. Download, upload, stream, queue, or manage MEGA content.
-6. Review logs only when troubleshooting.
-
-## Safety Notes
-
-This tool can affect real user data.
-
-- Downloads write files to disk. If a destination file already exists and is
-  not a resumable partial of the same transfer, the download is written to a
-  unique name (for example `name (1).ext`) so the existing file is preserved.
-  Use `--overwrite` (alias `--force`) to replace the existing file in place.
-- Upload, import, share, rename, move, trash, and remove commands affect the
-  configured MEGA account.
-- `trash empty` permanently clears MEGA trash content.
-- `rm` moves remote nodes to trash.
-- `run_command` in the config runs a local command after successful transfers.
-- Proxy features route traffic through configured or fetched proxies. Use only
-  proxy sources you trust.
-- Logs can contain local paths and operational details. Sensitive command
-  arguments, MEGA links, API-style query secrets, session-like fields, and
-  token-like payload values are redacted where the logger handles them, but
-  logs should still be treated as private.
-- Use this software only with content you are allowed to download, upload,
-  import, stream, or share.
-
-## Logs and Output
-
-Default download output:
-
-```text
-<project>\Output
-```
-
-Project-local user data:
-
-```text
-<project>\User
-```
-
-Launcher logs:
-
-```text
-<project>\Logs
-```
-
-Typical generated files include:
-
-| Path or pattern | Purpose |
-| --- | --- |
-| `Output/` | Default download destination. |
-| `User/Config/config.json` | Local configuration. |
-| `User/Data/accounts.json` | Encrypted account vault. |
-| `User/Data/queue.json` | Transfer queue. |
-| `User/Data/proxies.json` | Proxy pool. |
-| `User/Data/sessions/` | Local session data. |
-| `Logs/*.log` | Launcher and CLI logs. |
-| `*.mbstate` | Resumable transfer state next to partial downloads. |
-
-CLI log records include a run id, command name, process id, thread name, module,
-function, line number, startup arguments after redaction, runtime paths, a
-non-secret configuration summary, and process shutdown timing.
-
-These paths are ignored by Git because they may contain private data or
-generated output.
-
-## Important Repository Files
-
-| Path | Purpose |
-| --- | --- |
-| [Run.ps1](Run.ps1) | Main PowerShell launcher for source usage. |
-| [pyproject.toml](pyproject.toml) | Python package metadata, dependencies, and tool config. |
-| [requirements.txt](requirements.txt) | Runtime dependency list for launcher installation. |
-| [src/megabasterd_cli/](src/megabasterd_cli/) | Main Python package. |
-| [tests/](tests/) | Unit test suite. |
-| [docs/](docs/) | Command, configuration, usage, and architecture documentation. |
-| [.github/](.github/) | Issue templates and CI workflows. |
-| [LICENSE](LICENSE) | MIT License. |
-| [ATTRIBUTION.md](ATTRIBUTION.md) | Public attribution notice. |
-| [CHANGELOG.md](CHANGELOG.md) | User-facing release history. |
-| [GITHUB_RELEASE_NOTES.md](GITHUB_RELEASE_NOTES.md) | Draft notes for the next GitHub release. |
-
-## Documentation
-
-- [Usage guide](docs/USAGE.md)
-- [Command reference](docs/COMMANDS.md)
-- [Configuration reference](docs/CONFIG.md)
-- [Architecture overview](docs/ARCHITECTURE.md)
-- [Contributing guide](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
+Logs and `--json` output never contain a link's key (the part after `#`), and
+proxy passwords are shown as `<redacted>`. The `.mbstate` file next to an
+unfinished download holds the link, key included, because resuming needs it; it
+is deleted when the download completes. kiwi-dl never uses a MEGA account.
 
 ## Development
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-pytest
-ruff check src tests
-black --check src tests
+```bash
+uv venv && uv pip install -e ".[dev]"
+.venv/bin/pytest            # runs in parallel; no network, no MEGA account
+.venv/bin/ruff check src tests && .venv/bin/mypy src
 ```
 
-The test suite is designed to run without real MEGA credentials.
+The tests talk to a fake MEGA (`tests/fake_mega.py`) that serves really encrypted
+files and answers like the live service, 509s included.
 
-## Troubleshooting
+## License
 
-### The launcher closes immediately
-
-Run it from an existing PowerShell window:
-
-```powershell
-.\Run.ps1
-```
-
-The launcher normally stays open after errors so the message can be read.
-
-### Dependency installation fails
-
-Check Python and pip:
-
-```powershell
-python --version
-python -m pip --version
-python -m pip install -r requirements.txt
-```
-
-Then run:
-
-```powershell
-.\Run.ps1 --help
-```
-
-### A download resumes unexpectedly
-
-The downloader uses `.mbstate` files for resume support. Delete the partial
-output file and its matching `.mbstate` file if you want a completely fresh
-download.
-
-### A download overwrites an existing file
-
-By default an unrelated existing file is preserved and the download is written
-to a unique name instead. Pass `--overwrite` (or `--force`) if you want the
-download to replace the existing file in place.
-
-### MEGA quota is exceeded
-
-A chunk answered with HTTP 509 means this IP's transfer quota is spent, and the
-error says when it resets. With a proxy pool and `smart_proxy_enabled`, the
-download moves to the pool by itself; without one it stops at once (exit code
-3), or waits up to `quota_budget_seconds` if you set it.
-
-### MAC verification fails
-
-Delete the partial output and `.mbstate` file, then retry. Repeated failures can
-indicate unstable metadata or network issues.
-
-### Cloud commands cannot find an account
-
-Add an account or set the default account:
-
-```powershell
-.\Run.ps1 account add me@example.com --default
-.\Run.ps1 config set default_account me@example.com
-```
-
-## Acknowledgements
-
-MegaBasterd CLI is inspired by the original
-[MegaBasterd](https://github.com/tonikelope/megabasterd) project by tonikelope.
-
-## License and Attribution
-
-This project is released under the MIT License.
-
-You are free to use, copy, modify, publish, distribute, sublicense, and use this
-project in your own projects, including free or commercial projects.
-
-However, if you copy, modify, publish, distribute, or include substantial parts
-of this project in another project, you must keep the original copyright and
-license notice.
-
-Please preserve this attribution:
-
-MegaBasterd CLI - Copyright (c) 2026 Kiaro Sama  
-Original author: Kiaro Sama  
-GitHub: https://github.com/KiaroSama  
-Original repository: https://github.com/KiaroSama/megabasterd-cli  
-Licensed under the MIT License.
-
-## Donate
-
-If this project helps you, donations are appreciated.
-
-| Currency | Network | Address |
-| --- | --- | --- |
-| Bitcoin (BTC) | Bitcoin | `bc1qmth5m03pu5hujw5xw5jmywam3jj3sqwqupesdt` |
-| USDT, BNB, USDC, etc. | BEP20 | `0x0Bd0BA443a8B9cf15922bf7f0Bb0a4b495fD06Ef` |
-| USDT, TRX, USDC, etc. | TRC20 | `TWBA3xFTqgZAeAYMxqo85xWnzvty3DcAhw` |
-| Ethereum (ETH) | ERC20 | `0x0Bd0BA443a8B9cf15922bf7f0Bb0a4b495fD06Ef` |
-| TON | TON | `UQCN8Umo_OfOWqImZetQsrNStPcmLkMAKajFyiCOhso23NDb` |
-| Litecoin (LTC) | LTC | `ltc1qntqnnrunadurnw4cshv3qgspywrueyyeyngwuy` |
-| Solana (SOL) | Solana | `7B2wkczUjmkDhETwQuknBL8sUsbuV7nErxc317TmQuwR` |
-| Polygon (POL) | Polygon | `0x0Bd0BA443a8B9cf15922bf7f0Bb0a4b495fD06Ef` |
+MIT. See [LICENSE](LICENSE) and [ATTRIBUTION.md](ATTRIBUTION.md).
