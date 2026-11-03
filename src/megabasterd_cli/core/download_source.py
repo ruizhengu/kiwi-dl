@@ -179,7 +179,7 @@ def _resolve_folder_file(dl, parsed) -> tuple[dict, list[int], bytes]:
     file in the folder listing to get its wrapped key, and request the CDN URL
     with `n=<folder_id>` as an extra parameter.
     """
-    from .crypto import aes_key_wrap_decrypt
+    from .share_keys import share_root_handles, unwrap_share_node_key
 
     folder_id = parsed.public_id
     file_handle = parsed.subpath
@@ -188,19 +188,20 @@ def _resolve_folder_file(dl, parsed) -> tuple[dict, list[int], bytes]:
     folder_key = decode_link_key(require_link_key(parsed, "download"), 16, "Folder link")
 
     listing = dl._get_with_quota_wait(lambda: dl.api.get_public_folder_listing(folder_id))
+    raw_nodes = listing.get("f", [])
     file_raw = next(
-        (n for n in listing.get("f", []) if n.get("h") == file_handle and n.get("t") == 0),
+        (n for n in raw_nodes if n.get("h") == file_handle and n.get("t") == 0),
         None,
     )
     if file_raw is None:
         raise TransferError(message=f"File {file_handle!r} not in folder share {folder_id!r}")
 
-    raw_k = file_raw.get("k", "") or ""
-    _, wrapped = raw_k.split(":", 1) if ":" in raw_k else ("", raw_k)
-    if not wrapped:
+    if not file_raw.get("k"):
         raise TransferError(message=f"Empty wrapped key on {file_handle!r}")
-    key_bytes = aes_key_wrap_decrypt(b64_url_decode(wrapped), folder_key)
-    key_a32 = bytes_to_a32(key_bytes[:32])
+    unwrapped = unwrap_share_node_key(file_raw, folder_key, share_root_handles(raw_nodes))
+    if unwrapped is None:
+        raise TransferError(message=f"No key on {file_handle!r} unwraps with the link key")
+    key_a32 = bytes_to_a32(unwrapped[0][:32])
 
     info = dl._get_with_quota_wait(
         lambda: dl.api.request(

@@ -7,7 +7,6 @@ from collections.abc import Iterable
 
 from .crypto import (
     a32_to_bytes,
-    aes_key_wrap_decrypt,
     aes_key_wrap_encrypt,
     b64_url_decode,
     b64_url_encode,
@@ -16,6 +15,7 @@ from .crypto import (
 from .errors import AuthError, MegaError
 from .nodes import NodeOperations
 from .responses import _expect_field, _expect_mapping, _first_node_handle
+from .share_keys import share_root_handles, unwrap_share_node_key
 
 log = logging.getLogger(__name__)
 
@@ -123,6 +123,10 @@ class ShareOperations(NodeOperations):
             _expect_field(raw, "k", str, "shared node", default="")
             _expect_field(raw, "a", str, "shared node", default="")
 
+        # The `k` items wrapped with the link key carry the shared folder's
+        # handle; taken from the whole listing, before any subfolder filter.
+        share_roots = share_root_handles(raw_nodes)
+
         # Identify the share root: its parent doesn't appear in the listing.
         by_handle = {n["h"]: n for n in raw_nodes if "h" in n}
         all_handles = set(by_handle.keys())
@@ -193,16 +197,14 @@ class ShareOperations(NodeOperations):
             if node_type not in (0, 1):
                 continue  # Skip system nodes (root/inbox/trash) which won't appear here anyway
 
-            raw_key = raw.get("k", "") or ""
-            _, wrapped = raw_key.split(":", 1) if ":" in raw_key else ("", raw_key)
-            if not wrapped:
+            if not raw.get("k"):
                 log.warning("Skipping %s: empty wrapped key", src_handle)
                 continue
-            try:
-                shared_key_bytes = aes_key_wrap_decrypt(b64_url_decode(wrapped), folder_key)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Skipping %s: key decrypt failed: %s", src_handle, exc)
+            unwrapped = unwrap_share_node_key(raw, folder_key, share_roots)
+            if unwrapped is None:
+                log.warning("Skipping %s: no key in it unwraps with the link key", src_handle)
                 continue
+            shared_key_bytes = unwrapped[0]
             key_len = 32 if node_type == 0 else 16
             node_key = shared_key_bytes[:key_len]
             user_wrapped = aes_key_wrap_encrypt(node_key, self.session.master_key)

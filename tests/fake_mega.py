@@ -300,18 +300,38 @@ def logged_in_client(api: FakeMegaAPI | None = None) -> tuple[MegaClient, FakeMe
     return client, api
 
 
-def share_listing(folder_key: bytes, entries: list[tuple[str, str, str, int]]) -> list[dict]:
+def share_listing(
+    folder_key: bytes,
+    entries: list[tuple[str, str, str, int]],
+    owner_item: str | None = None,
+) -> list[dict]:
     """Build a public-folder listing: entries are (handle, parent, name, type).
 
     Keys are wrapped with the SHARE key rather than a master key, which is the
     distinction `import_public_share` has to get right when it re-wraps them.
+
+    `owner_item` ("first" or "last") builds `k` the way a live owner-shared
+    folder sends it: two `handle:key` items joined by "/" - the owner's, wrapped
+    with THEIR master key, and the share's, wrapped with the link key under the
+    shared folder's handle. Observed on a live public folder in Nov 2026:
+    `<owner>:<22ch>/<root>:<22ch>`, owner first. Without it, the single item is
+    labelled with the owner handle, the shape the readers were written for.
     """
+    listed = {handle for handle, *_ in entries}
+    root = next((handle for handle, parent, *_ in entries if parent not in listed), "")
     listing = []
     for handle, parent, name, node_type in entries:
         node_key = os.urandom(32) if node_type == FILE else os.urandom(16)
         aes_key = (
             bytes_from_a32_pair(bytes_to_a32(node_key)) if node_type == FILE else node_key[:16]
         )
+        share_wrapped = b64_url_encode(aes_key_wrap_encrypt(node_key, folder_key))
+        if owner_item is None:
+            raw_k = f"{OWNER}:{share_wrapped}"
+        else:
+            owner = f"{OWNER}:{b64_url_encode(aes_key_wrap_encrypt(node_key, MASTER_KEY))}"
+            share = f"{root}:{share_wrapped}"
+            raw_k = f"{owner}/{share}" if owner_item == "first" else f"{share}/{owner}"
         listing.append(
             {
                 "h": handle,
@@ -321,7 +341,7 @@ def share_listing(folder_key: bytes, entries: list[tuple[str, str, str, int]]) -
                 "s": 0,
                 "ts": 1_700_000_000,
                 "a": b64_url_encode(encrypt_attributes({"n": name}, aes_key)),
-                "k": f"{OWNER}:{b64_url_encode(aes_key_wrap_encrypt(node_key, folder_key))}",
+                "k": raw_k,
             }
         )
     return listing

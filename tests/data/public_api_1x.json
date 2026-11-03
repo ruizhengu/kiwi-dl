@@ -571,6 +571,11 @@
     "restore_session",
     "session_path"
   ],
+  "megabasterd_cli.core.share_keys": [
+    "share_root_handles",
+    "unwrap_share_node_key",
+    "wrapped_key_candidates"
+  ],
   "megabasterd_cli.core.shares": [
     "ShareOperations",
     "ShareOperations.export_link",
