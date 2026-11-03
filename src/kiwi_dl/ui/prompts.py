@@ -10,12 +10,14 @@ _console = make_console()
 
 
 def _line(symbol: str, style: str, msg: str | Text) -> Text:
-    """A styled symbol + the message rendered verbatim.
+    """A coloured symbol, then the message in plain text, rendered verbatim.
 
-    Callers routinely build `msg` as an f-string around server-supplied text, so
-    it is escaped by default; pass `markup(...)` to opt a message into styling.
+    Only the symbol carries the colour: a whole line in green or red is louder
+    than the news it brings. Callers routinely build `msg` as an f-string around
+    server-supplied text, so it is escaped by default; pass `markup(...)` to opt
+    a message into styling.
     """
-    return Text(f"{symbol} ", style=style).append_text(literal(msg))
+    return Text().append(f"{symbol} ", style=style).append_text(literal(msg))
 
 
 def print_success(msg: str | Text) -> None:

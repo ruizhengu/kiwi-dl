@@ -196,12 +196,9 @@ class MultiFileProgressView:
         if visible:
             lines.append(Text(""))
         for _row_number, state in visible:
-            symbol, name_style = self._state_mark(state.status)
-            lines.append(
-                Text(f"{symbol} ", style=name_style).append(
-                    _shorten_middle(state.name, max(10, width - 2))
-                )
-            )
+            symbol, symbol_style = self._state_mark(state.status)
+            name = _shorten_middle(state.name, max(10, width - 2))
+            lines.append(Text().append(f"{symbol} ", style=symbol_style).append(name))
             stats = self._stats_text(
                 state.completed,
                 state.total,
