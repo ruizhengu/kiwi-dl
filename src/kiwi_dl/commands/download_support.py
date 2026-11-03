@@ -65,6 +65,7 @@ def _folder_progress_callbacks(
             path=str(path),
             error_code=error_code_for(exc),
             error=str(exc),
+            quota_resets_in_seconds=getattr(exc, "time_left", None),
         )
 
     return on_file_progress, on_file_done, on_file_failed
