@@ -30,6 +30,7 @@ import logging
 import socket
 import threading
 import time
+import weakref
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ from pathlib import Path
 
 import requests
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity.stop import stop_base
 
 from ..proxy.selector import ProxySelector
 from ..utils.helpers import available_disk_space, claim_destination, release_destination
@@ -136,6 +138,36 @@ def _is_transient_chunk_failure(exc: BaseException) -> bool:
     )
 
 
+# The stop event of the download each chunk worker is serving. tenacity hands
+# its `sleep` only a number of seconds, so the backoff below finds its download
+# through the thread it runs on - the same thread that made the attempt.
+_worker = threading.local()
+
+# Every downloader alive in this process, for `MegaDownloader.stop_all`.
+_live_downloaders: weakref.WeakSet[MegaDownloader] = weakref.WeakSet()
+_live_lock = threading.Lock()
+
+
+def _sleep_unless_stopped(seconds: float) -> None:
+    """Retry backoff that ends the moment the worker's download is stopped.
+
+    `time.sleep` held a stopped worker for up to 30 s per chunk, and the pool
+    cannot let go of a download until every worker has returned.
+    """
+    stop_event = getattr(_worker, "stop_event", None)
+    if stop_event is None:
+        time.sleep(seconds)
+    else:
+        stop_event.wait(seconds)
+
+
+class _StopWhenDownloadStopped(stop_base):
+    """tenacity stop condition: no further attempts once the download is stopped."""
+
+    def __call__(self, retry_state) -> bool:
+        return bool(retry_state.args[0]._stop_event.is_set())
+
+
 def _local_route_fingerprint() -> str | None:
     """The local address the OS would use to reach the internet, or None.
 
@@ -230,6 +262,9 @@ class MegaDownloader:
         self._url_generation = 0  # Bumped each time the URL is refreshed
         self._url_resolver: Callable[[], str] | None = None
 
+        with _live_lock:
+            _live_downloaders.add(self)
+
     def _proxies_for_request(self) -> tuple[dict[str, str] | None, str | None]:
         """Per-request proxy decision, delegated to the shared selector."""
         return self._selector.select()
@@ -237,6 +272,20 @@ class MegaDownloader:
     def stop(self) -> None:
         """Signal all worker threads to stop."""
         self._stop_event.set()
+
+    @classmethod
+    def stop_all(cls) -> None:
+        """Stop every download in this process - what Ctrl-C means.
+
+        The interrupt itself reaches only the main thread. A parallel or folder
+        download runs each file on a worker thread whose own chunk workers
+        never see it, so without this they carried on to the end of the file
+        while the main thread waited for them.
+        """
+        with _live_lock:
+            live = list(_live_downloaders)
+        for downloader in live:
+            downloader.stop()
 
     # ------------------------------------------------------------------
     # Quota recovery
@@ -562,37 +611,64 @@ class MegaDownloader:
 
         # Spawn workers. The pool exits (joining every worker) before the
         # ticker does, so the ticker's final emit reports 100% of the bytes.
-        with (
-            progress_ticker(_emit_progress if on_progress else None, "mega-progress"),
-            ThreadPoolExecutor(max_workers=self.max_workers) as pool,
-        ):
-            futures = []
-            for chunk in pending:
-                if self._stop_event.is_set():
-                    break
-                fut = pool.submit(
-                    self._download_chunk,
-                    chunk,
-                    aes_key,
-                    nonce,
-                    destination,
-                    state,
-                )
-                futures.append((chunk, fut))
-
-            for chunk, fut in futures:
+        try:
+            with (
+                progress_ticker(_emit_progress if on_progress else None, "mega-progress"),
+                ThreadPoolExecutor(max_workers=self.max_workers) as pool,
+            ):
+                futures = []
                 try:
-                    fut.result()
-                except Exception as e:
+                    for chunk in pending:
+                        if self._stop_event.is_set():
+                            break
+                        fut = pool.submit(
+                            self._download_chunk,
+                            chunk,
+                            aes_key,
+                            nonce,
+                            destination,
+                            state,
+                        )
+                        futures.append((chunk, fut))
+
+                    for chunk, fut in futures:
+                        try:
+                            fut.result()
+                        except Exception as e:
+                            if self._stop_event.is_set():
+                                # Stopped from outside: an attempt cut short is
+                                # not a chunk failure. The coverage check below
+                                # reports the cancellation.
+                                continue
+                            self._stop_event.set()
+                            if self.keep_state_files_on_error:
+                                with self._lock:
+                                    state_to_save = snapshot_state(state)
+                                save_state(state_to_save)
+                            else:
+                                clear_state(destination)
+                            log.error("Chunk %d failed: %s", chunk.index, e)
+                            raise TransferError(message=f"Chunk {chunk.index} failed: {e}") from e
+                except KeyboardInterrupt:
+                    # Ctrl-C lands on this thread. Leaving the `with` joins the
+                    # pool, and an executor runs EVERY queued task before it
+                    # lets go - so a "cancelled" download used to fetch the
+                    # whole rest of the file first. Stop the workers (each checks
+                    # between 64 KiB blocks and wakes from retry backoff) and
+                    # drop the chunks that have not started.
                     self._stop_event.set()
-                    if self.keep_state_files_on_error:
-                        with self._lock:
-                            state_to_save = snapshot_state(state)
-                        save_state(state_to_save)
-                    else:
-                        clear_state(destination)
-                    log.error("Chunk %d failed: %s", chunk.index, e)
-                    raise TransferError(message=f"Chunk {chunk.index} failed: {e}") from e
+                    for _chunk, fut in futures:
+                        fut.cancel()
+                    raise
+        except KeyboardInterrupt:
+            # The pool has joined, so `state` holds every chunk that committed;
+            # without this the last few since the periodic save were lost.
+            interrupted = snapshot_state(state)
+            if self.keep_state_files_on_error:
+                save_state(interrupted)
+            else:
+                clear_state(destination)
+            raise
         committed = snapshot_state(state)
         save_state(committed)
 
@@ -672,8 +748,9 @@ class MegaDownloader:
 
     @retry(
         retry=retry_if_exception(_is_transient_chunk_failure),
-        stop=stop_after_attempt(8),
+        stop=stop_after_attempt(8) | _StopWhenDownloadStopped(),
         wait=wait_exponential(multiplier=2, min=2, max=30),
+        sleep=_sleep_unless_stopped,
         reraise=True,
     )
     def _download_chunk(
@@ -689,6 +766,7 @@ class MegaDownloader:
         The retry policy is declared here; the per-attempt body lives in
         `download_transport.fetch_chunk`.
         """
+        _worker.stop_event = self._stop_event
         fetch_chunk(self, chunk, aes_key, nonce, destination, state)
 
     def _verify_integrity(

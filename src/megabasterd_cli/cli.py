@@ -6,7 +6,9 @@ import contextlib
 import logging
 import os
 import platform
+import signal
 import sys
+import threading
 from pathlib import Path
 
 import click
@@ -36,6 +38,7 @@ from .commands.stream_cmd import stream
 from .commands.upload_cmd import upload
 from .commands.watch_cmd import watch_cmd
 from .config import ConfigStore, config_file, data_dir, log_dir, user_dir
+from .core.downloader import MegaDownloader
 from .ui.theme import make_console
 from .utils.logger import setup_logging
 
@@ -285,6 +288,24 @@ cli.add_command(proxy_cmd)
 cli.add_command(config_cmd, name="config")
 
 
+# Set by the SIGINT handler below; read by `main` to tell Ctrl-C apart from
+# any other exit status 1.
+_interrupted = threading.Event()
+
+
+def _stop_transfers_then_interrupt(signum, frame) -> None:
+    """SIGINT: stop every running download, then raise KeyboardInterrupt as usual.
+
+    The interrupt is delivered to the main thread only. Chunk workers, and the
+    per-file workers of a parallel or folder download, never see it, so a
+    download carried on to the end of the file while the main thread waited to
+    join them.
+    """
+    _interrupted.set()
+    MegaDownloader.stop_all()
+    signal.default_int_handler(signum, frame)
+
+
 def main() -> int:
     """Console script entry point."""
     # Make stdout/stderr Unicode-safe on legacy Windows terminals so messages
@@ -296,17 +317,31 @@ def main() -> int:
         if reconfigure is not None:
             with contextlib.suppress(ValueError, OSError):
                 reconfigure(encoding="utf-8", errors="replace")
+    _interrupted.clear()
+    on_main_thread = threading.current_thread() is threading.main_thread()
+    previous = (
+        signal.signal(signal.SIGINT, _stop_transfers_then_interrupt) if on_main_thread else None
+    )
     try:
         cli(prog_name="mb")
         return 0
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user.[/yellow]")
         return 130
+    except SystemExit as exc:
+        # Click's standalone mode catches KeyboardInterrupt itself, prints
+        # "Aborted!" and exits 1, so the documented 130 above was never reached.
+        if _interrupted.is_set() and exc.code == 1:
+            return 130
+        raise
     except Exception as e:
         logging.getLogger(__name__).exception("Fatal error: %s", e)
         # `e` may carry server-supplied text; render it literally, not as markup.
         console.print(Text.assemble(("Error:", "bold red"), " ", str(e)))
         return 1
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
 
 
 if __name__ == "__main__":
