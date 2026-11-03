@@ -42,16 +42,3 @@ def _expect_field(mapping: dict, key: str, kind: type, what: str, default: Any =
             f"{type(value).__name__}, expected {kind.__name__}"
         )
     return value
-
-
-def _first_node_handle(result: Any, what: str) -> str:
-    """Handle of the first node in a `{"f": [...]}` mutation reply, or "".
-
-    An empty list is a legitimate "nothing was created"; a list whose first
-    element is not an object with a string handle is a protocol violation and
-    must not be indexed blind.
-    """
-    nodes = _expect_field(_expect_mapping(result, what), "f", list, what, default=[])
-    if not nodes:
-        return ""
-    return str(_expect_field(_expect_mapping(nodes[0], what), "h", str, what))

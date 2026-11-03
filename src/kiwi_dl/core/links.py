@@ -50,14 +50,6 @@ class ParsedLink:
     subpath: str | None = None  # File/folder handle inside a folder share
     encrypted_blob: str | None = None  # For password-protected links
 
-    @property
-    def is_folder(self) -> bool:
-        return self.type in (LinkType.FOLDER, LinkType.FOLDER_IN_FOLDER)
-
-    @property
-    def needs_password(self) -> bool:
-        return self.type == LinkType.PASSWORD_PROTECTED
-
 
 # Modern format patterns
 _RE_MODERN_FILE = re.compile(
@@ -259,8 +251,8 @@ def require_link_key(parsed, what: str) -> str:
     the crypto layer instead of telling the user their link is missing a key.
 
     The length check is here for the same reason the None check is. `str_to_a32`
-    routes through `bytes_to_a32`, which zero-pads to a word boundary because
-    `derive_key_legacy` depends on that - so a key that lost one base64
+    routes through `bytes_to_a32`, which zero-pads to a word boundary (MEGA's
+    a32 convention) - so a key that lost one base64
     character still produced a full-length key array and passed every guard
     downstream. The user got a DIFFERENT AES key with no error, surfacing much
     later as "File MAC verification failed", or as silent garbage on disk when

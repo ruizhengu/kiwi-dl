@@ -188,10 +188,6 @@ def default_user_agent() -> str:
     return f"kiwi-dl/{__version__}"
 
 
-# Backward-compatible module constant (kept for imports; now version-accurate).
-USER_AGENT = default_user_agent()
-
-
 class MegaAPIClient:
     """Stateful client for the MEGA JSON-RPC API.
 
@@ -265,9 +261,6 @@ class MegaAPIClient:
 
     def set_session(self, sid: str | None) -> None:
         self._sid = sid
-
-    def clear_session(self) -> None:
-        self._sid = None
 
     def close(self) -> None:
         self._session.close()

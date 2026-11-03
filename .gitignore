@@ -1,180 +1,38 @@
-# Local command/request notes
-/.Commands/
-/.Commands/**
-/.Comments/
-/.Comments/**
-/Commands/
-/Commands/**
-
-# Logs
-logs/
-log/
-Logs/
-Log/
-*.log
-*.trace
-*.debug
-
-# Cache
-.cache/
-cache/
-Cache/
-.caches/
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Test and lint caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.hypothesis/
-.tox/
-.nox/
-htmlcov/
-cover/
 .coverage
 .coverage.*
 coverage.xml
-*.cover
-*.py,cover
+htmlcov/
 
-# Temporary files
-tmp/
-temp/
-Temp/
-*.tmp
-*.temp
-*.bak
-*.backup
-*.old
-*.orig
-*.swp
-*.swo
-*~
+# Downloads and their sidecars from local runs
+*.mbstate
+*.mbstate.*.tmp
+*.mbclaim
+/downloads/
+# Data folders from the upstream project-local layout
+/Output/
+/User/
 
-# Environment and secrets
+# Local only
 .env
 .env.*
-!.env.example
-*.key
-*.pem
-*.p12
-*.pfx
-*.crt
-*.cer
-credentials.*
-credential.*
-secrets.*
-secret.*
-token.*
-tokens.*
-cookie.*
-cookies.*
-session.*
-sessions.*
-
-# Local output / generated data
-output/
-outputs/
-Output/
-Outputs/
-downloads/
-download/
-Downloads/
-Download/
-dist/
-build/
-Bin/
-bin/
-processed/
-remuxed/
-*.mbstate
-*.megabasterd-state
-*.upload
-.test-temp/
-test_downloads/
-test_files/
-
-# Local user data
-.megabasterd/
-config.json
-accounts.enc
-accounts.json
-queue.json
-proxies.json
-
-# Python packaging and environments
-.Python
-.venv/
-venv/
-env/
-ENV/
-env.bak/
-venv.bak/
-*.egg-info/
-.eggs/
-eggs/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
-*.egg
-MANIFEST
-
-# Editor and IDE folders
-.vscode/
-.idea/
-*.code-workspace
-
-# OS metadata
 .DS_Store
-Thumbs.db
-desktop.ini
-*.lnk
-
-# Local assistant/tooling state
+.idea/
+.vscode/
 .claude/
-.kiro/
-.codex/
-.cursor/
-.cline/
-.agents/
-/.ai/
-/reference.md
-/lesson.md
+/plans/
 /CLAUDE.md
 /AGENTS.md
-/graphify-out/
-/plans/
-/advisor-plans/
-
-# Private, local-only AI handoff document (never publish)
-explain-AI.md
-
-# Private, local-only registry of real secrets (never publish)
-/secrets.md
-
-# Private, local-only directory (never publish), at any depth
-.ignoreme
-.ignoreme/
-**/.ignoreme
-**/.ignoreme/
-
-# Hook Maker: local/private files (auto-managed)
-!/.env.dist
-!/.env.example
-!/.env.sample
-!/.env.template
-/.agents/
-/.claude/
-/.cline/
-/.codex/
-/.cursor/
-/.env
-/.env.*
-/.kiro/
-/explain-AI.md
-
-!/.env.example
-!/.env.sample
-!/.env.template
-!/.env.dist

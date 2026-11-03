@@ -79,16 +79,6 @@ def format_bytes(num: int) -> str:
     return f"{scaled:.2f} EB"
 
 
-def format_speed(bytes_per_sec: float) -> str:
-    """Render a transfer rate as a human-readable string.
-
-    Compatibility surface retained for the 1.x series. The progress view has
-    its own `_format_speed`, which takes an optional rate and renders the
-    unknown case; this one keeps the plain 1.x signature.
-    """
-    return f"{format_bytes(int(bytes_per_sec))}/s"
-
-
 def format_eta(seconds: float) -> str:
     """Format a duration as H:MM:SS or M:SS."""
     if seconds < 0 or seconds == float("inf"):
@@ -243,34 +233,3 @@ def available_disk_space(path: Path) -> int:
     the hand-rolled `os.statvfs` path here used to do.
     """
     return shutil.disk_usage(str(path)).free
-
-
-def ensure_unique_path(path: Path) -> Path:
-    """If `path` exists, append (1), (2), etc. until a free name is found.
-
-    NOTE: this check is not atomic; concurrent transfers must go through
-    `claim_destination` instead, which combines the uniqueness walk with a
-    process-wide reservation.
-
-    Compatibility surface retained for the 1.x series.
-    """
-    if not path.exists():
-        return path
-    for candidate in _numbered_candidates(path):
-        if not candidate.exists():
-            return candidate
-    raise AssertionError("unreachable")
-
-
-def file_md5(path: Path, chunk: int = 65536) -> str:
-    """Compute MD5 of a local file (hex).
-
-    Compatibility surface retained for the 1.x series.
-    """
-    import hashlib
-
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(chunk), b""):
-            h.update(block)
-    return h.hexdigest()

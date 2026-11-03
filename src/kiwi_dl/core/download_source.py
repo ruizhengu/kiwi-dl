@@ -35,8 +35,7 @@ log = logging.getLogger(__name__)
 def decode_link_key(key: str, expected_len: int, what: str) -> bytes:
     """Decode a user-supplied link key, refusing a truncated one.
 
-    `bytes_to_a32` zero-pads to a word boundary - `derive_key_legacy` depends
-    on that - so a key that lost one base64 character (42 chars, 31 bytes)
+    `bytes_to_a32` zero-pads to a word boundary (MEGA's a32 convention), so a key that lost one base64 character (42 chars, 31 bytes)
     still produced exactly 8 uint32s and passed `unpack_file_key`'s length
     guard. The user got a DIFFERENT AES key with no error at all: it surfaced
     later as "File MAC verification failed", or as silent garbage on disk when
