@@ -46,6 +46,8 @@ DEPRECATED_CONFIG_KEYS = {
     "command run.",
     "smart_proxy_timeout_seconds": "not implemented.",
     "smart_proxy_random": "not implemented; the pool always picks randomly, weighted by health.",
+    "smart_proxy_enabled": "removed; proxies you add are used, and "
+    "`kiwi-dl config set smart_proxy_mode off` switches them off.",
 }
 
 # Deterministic warn-once bookkeeping: old config files written by other
@@ -81,10 +83,9 @@ class Config:
     max_parallel_downloads: int = 6  # Number of files downloading simultaneously
     speed_limit_kbps: float = 0  # Aggregate per-command download cap; 0 = unlimited
     verify_integrity: bool = True
-    smart_proxy_enabled: bool = False
     smart_proxy_url: str | None = None
-    # How downloads use the pool once smart proxy is enabled (MegaBasterd's
-    # SmartProxy, see proxy/quota_router.py):
+    # How downloads use the proxies you add (MegaBasterd's SmartProxy, see
+    # proxy/quota_router.py). With no proxies configured, nothing changes:
     #   "on-509" - direct first; a chunk 509 sends every download's chunks
     #              through the pool for `smart_proxy_window_seconds`, then
     #              direct is tried again;

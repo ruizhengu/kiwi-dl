@@ -90,7 +90,7 @@ def _config_summary_for_log(store: ConfigStore) -> dict[str, object]:
         "verify_integrity": cfg.verify_integrity,
         "auto_resume": cfg.auto_resume,
         "keep_state_files_on_error": cfg.keep_state_files_on_error,
-        "smart_proxy_enabled": cfg.smart_proxy_enabled,
+        "smart_proxy_mode": cfg.smart_proxy_mode,
         "force_smart_proxy": cfg.force_smart_proxy,
         "timeout_seconds": cfg.timeout_seconds,
         "quota_wait_seconds": cfg.quota_wait_seconds,

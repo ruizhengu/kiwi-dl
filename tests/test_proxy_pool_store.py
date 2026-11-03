@@ -60,7 +60,7 @@ def test_corrupt_pool_raises_typed_error(data_dir: Path, payload: str) -> None:
     """Every command routes through effective_pool; corruption must not crash it
     with an AttributeError from deep inside the loader."""
     (data_dir / "proxies.json").write_text(payload, encoding="utf-8")
-    cfg = Config(smart_proxy_enabled=True)
+    cfg = Config()
     with pytest.raises(runtime.ProxyPoolCorruptionError):
         runtime.effective_pool(cfg)
 
