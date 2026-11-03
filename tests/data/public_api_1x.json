@@ -395,6 +395,7 @@
     "MegaDownloader",
     "MegaDownloader.download_link",
     "MegaDownloader.stop",
+    "MegaDownloader.stop_all",
     "URL_EXPIRY_STATUS"
   ],
   "megabasterd_cli.core.errors": [

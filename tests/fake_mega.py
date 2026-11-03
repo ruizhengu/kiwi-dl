@@ -26,6 +26,8 @@ Not a mock framework. Add only what a test needs to observe.
 from __future__ import annotations
 
 import os
+import threading
+import time
 
 from megabasterd_cli.core.auth import MegaSession
 from megabasterd_cli.core.client import MegaClient
@@ -352,3 +354,120 @@ def attrs_of(blob_b64: str, key: bytes) -> dict | None:
     from megabasterd_cli.core.crypto import b64_url_decode, decrypt_attributes
 
     return decrypt_attributes(b64_url_decode(blob_b64), key)
+
+
+# ---------------------------------------------------------------------------
+# The storage side: one public file served over `requests.get`
+# ---------------------------------------------------------------------------
+
+
+class _CdnResponse:
+    """The slice of `requests.Response` that `download_transport` reads."""
+
+    def __init__(self, status_code: int, headers: dict, body: bytes = b"", delay: float = 0.0):
+        self.status_code = status_code
+        self.headers = headers
+        self._body = body
+        self._delay = delay
+
+    def iter_content(self, chunk_size: int = 65536):
+        for i in range(0, len(self._body), chunk_size):
+            if self._delay:
+                time.sleep(self._delay)
+            yield self._body[i : i + chunk_size]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def close(self):
+        return None
+
+
+class FakeCdn:
+    """A MEGA storage server for one public file, reached through `requests.get`.
+
+    Install with `monkeypatch.setattr("requests.get", cdn.get)`: that is the
+    call `download_transport` makes per chunk, so the real chunk path - range
+    guards, AES-CTR, chunk MACs, state commits and the on-disk MAC check - runs
+    unmodified against it.
+
+    The ciphertext is produced from the format (AES-128-CTR, 64-bit nonce then
+    a 64-bit block counter from zero), not with the client's cipher helper.
+    The expected MAC does use the client's chunk-MAC functions: the MAC code is
+    proven against MEGA by live runs, and what these tests exercise is
+    transfer behaviour around it, not the MAC itself.
+
+    Every request is appended to `self.requests` as a dict, so a test can
+    assert on which URL, range and route each chunk actually used.
+    """
+
+    def __init__(self, size: int = 3 * 1024 * 1024, block_delay: float = 0.0):
+        from Crypto.Cipher import AES
+
+        from megabasterd_cli.core.chunks import (
+            chunk_mac,
+            combine_chunk_macs,
+            condense_mac,
+            iter_chunks,
+        )
+
+        self.size = size
+        self.plaintext = os.urandom(size)
+        self.aes_key = os.urandom(16)
+        self.nonce = os.urandom(8)
+        self.ciphertext = AES.new(
+            self.aes_key, AES.MODE_CTR, nonce=self.nonce, initial_value=0
+        ).encrypt(self.plaintext)
+        macs = [
+            chunk_mac(self.plaintext[c.offset : c.offset + c.size], self.aes_key, self.nonce)
+            for c in iter_chunks(size)
+        ]
+        self.mac_iv_a32 = condense_mac(combine_chunk_macs(macs, self.aes_key))
+        self.block_delay = block_delay
+        self.requests: list[dict] = []
+        self._lock = threading.Lock()
+        self._urls = 0
+        # Scripted failures: called with the request record before anything is
+        # served; returning an exception makes `get` raise it.
+        self.fail_with = None
+
+    def issue_url(self) -> str:
+        """A fresh CDN URL, as the `a:g` resolver would hand out."""
+        with self._lock:
+            self._urls += 1
+            return f"http://cdn.invalid/dl/url{self._urls}"
+
+    def get(self, url, headers=None, timeout=None, stream=False, proxies=None):
+        start, end = (int(x) for x in headers["Range"].split("=", 1)[1].split("-"))
+        record = {"url": url, "start": start, "end": end, "proxies": proxies}
+        with self._lock:
+            self.requests.append(record)
+        if self.fail_with is not None:
+            exc = self.fail_with(record)
+            if exc is not None:
+                raise exc
+        body = self.ciphertext[start : end + 1]
+        record["status"] = 206
+        return _CdnResponse(
+            206,
+            {"Content-Range": f"bytes {start}-{end}/{self.size}", "Content-Length": str(len(body))},
+            body,
+            self.block_delay,
+        )
+
+    def download_with(self, downloader, destination):
+        """Run `downloader` over this file the way `download_link` would."""
+        return downloader._run_download(
+            cdn_url=self.issue_url(),
+            file_size=self.size,
+            aes_key=self.aes_key,
+            nonce=self.nonce,
+            mac_iv_a32=self.mac_iv_a32,
+            destination=destination,
+            source="https://mega.nz/file/FAKEFILE#<key>",
+            on_progress=None,
+            url_resolver=self.issue_url,
+        )
