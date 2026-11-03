@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a problem with MegaBasterd CLI
+description: Report a problem with kiwi-dl
 title: "[Bug]: "
 labels: ["bug", "triage"]
 body:
@@ -12,8 +12,8 @@ body:
     id: version
     attributes:
       label: Version
-      description: "Run `./Run.ps1 --version` or `mb --version` and paste the output."
-      placeholder: "megabasterd-cli 1.0.0"
+      description: "Run `mg-dl --version` and paste the output."
+      placeholder: "kiwi-dl, version 0.1.0"
     validations:
       required: true
 
@@ -22,10 +22,9 @@ body:
     attributes:
       label: Operating system
       options:
-        - Windows 11
-        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
         - Linux
-        - macOS (untested platform)
         - Other
     validations:
       required: true
@@ -50,7 +49,7 @@ body:
       label: How to reproduce
       description: Exact command you ran and what you expected.
       placeholder: |
-        1. ./Run.ps1 download "https://mega.nz/file/..."
+        1. mg-dl "https://mega.nz/file/..." -o ~/Downloads
         2. ...
     validations:
       required: true

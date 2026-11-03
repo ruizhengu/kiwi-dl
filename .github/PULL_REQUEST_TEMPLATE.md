@@ -10,7 +10,7 @@
 
 - [ ] `pytest` passes
 - [ ] `ruff check src tests` passes
-- [ ] `.\Run.ps1 --help` passes
+- [ ] `mg-dl --help` and `kiwi-dl --help` run
 - [ ] Manually tested the command(s) affected
 
 ## Related issues

@@ -37,23 +37,13 @@ jobs:
 
       - name: Run tests
         # -n auto comes from addopts in pyproject.toml, so a local run and this
-        # job fan out the same way. Coverage is currently ~78%; the gate is 76.
-        run: pytest --cov=kiwi_dl --cov-report=xml --cov-fail-under=76
+        # job fan out the same way. Coverage is currently ~86%; the gate is 84.
+        run: pytest --cov=kiwi_dl --cov-report=term --cov-fail-under=84
 
       # The console scripts are how a pip/pipx install is actually run.
       - name: Smoke-test installed commands
         run: |
-          mb --help
-          mb --version
-          python -m megabasterd_cli --help
-
-      - name: Smoke-test script launcher
-        shell: pwsh
-        run: ./Run.ps1 --help
-
-      - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v7
-        with:
-          file: ./coverage.xml
-          fail_ci_if_error: false
+          mg-dl --help
+          mg-dl --version
+          kiwi-dl --help
+          python -m kiwi_dl --help

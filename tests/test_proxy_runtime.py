@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from kiwi_dl.config import Config
 from kiwi_dl.proxy import runtime
 from kiwi_dl.proxy.smart_proxy import SmartProxyPool
@@ -107,3 +109,12 @@ def test_a_config_from_the_old_switch_loads_with_a_warning(tmp_path: Path, caplo
     assert cfg.max_workers == 4
     assert not hasattr(cfg, "smart_proxy_enabled")
     assert "smart_proxy_enabled" in caplog.text
+
+
+@pytest.mark.parametrize("scheme", ["socks5", "socks5h", "socks4"])
+def test_socks_proxies_are_usable(scheme) -> None:
+    """Without PySocks, `requests` raises InvalidSchema for every socks:// URL
+    before a byte is sent, and the chunk router can only ban such a proxy."""
+    from requests.adapters import HTTPAdapter
+
+    assert HTTPAdapter().proxy_manager_for(f"{scheme}://127.0.0.1:9") is not None
