@@ -124,34 +124,6 @@ def test_the_two_processes_therefore_use_different_state_files(tmp_path):
     assert other_state != str(state_path_for(claimed))
 
 
-def test_a_second_process_cannot_take_a_held_upload_lease(tmp_path):
-    """The upload lease plays the same role for `.mbstate` on the upload path."""
-    source = tmp_path / "payload.bin"
-    source.write_bytes(b"x" * 128)
-
-    holder = _run_in_subprocess(
-        f"""
-        from pathlib import Path
-        from megabasterd_cli.core.uploader import MegaUploader, UploadInProgressError
-
-        class _Client:
-            session = object()
-            api = object()
-
-        source = Path({str(source)!r})
-        uploader = MegaUploader(client=_Client())
-        with uploader._upload_lease(source):
-            try:
-                with MegaUploader(client=_Client())._upload_lease(source):
-                    print("SECOND-OWNER-ADMITTED")
-            except UploadInProgressError:
-                print("REFUSED")
-        """
-    )
-    assert holder.returncode == 0, holder.stderr
-    assert "REFUSED" in holder.stdout, holder.stdout
-
-
 # ---------------------------------------------------------------------------
 # What blind overwrite actually does, so the dependency is explicit
 # ---------------------------------------------------------------------------

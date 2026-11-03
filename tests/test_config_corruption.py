@@ -17,7 +17,7 @@ from megabasterd_cli.config import ConfigCorruptionError, ConfigLockError, Confi
 
 MALFORMED = b'{"max_workers": 8,,,\n'
 # A secret-looking value inside the corrupt file must never reach output.
-SECRET_IN_FILE = b'{"connect_proxy_password": "s3cr3t-not-a-real-password", oops}'
+SECRET_IN_FILE = b'{"smart_proxy_url": "s3cr3t-not-a-real-password", oops}'
 
 
 def _runner() -> CliRunner:
@@ -51,7 +51,7 @@ def test_corrupt_roots_are_detected_and_never_rewritten(tmp_path, data):
     assert store.is_corrupt, "malformed/invalid-root config must be flagged as corrupt"
     for mutate in (
         lambda: store.set("max_workers", "4"),
-        lambda: store.unset("default_account"),
+        lambda: store.unset("run_command"),
         lambda: store.migrate(),
         lambda: store.reset(),
         lambda: store.save(),
@@ -128,7 +128,7 @@ def corrupt_env(tmp_path, monkeypatch):
     "args",
     [
         ["config", "set", "max_workers", "4"],
-        ["config", "unset", "default_account"],
+        ["config", "unset", "run_command"],
         ["config", "migrate"],
         ["config", "reset"],
     ],
@@ -252,7 +252,7 @@ def test_fresh_store_save_cannot_overwrite_a_corrupt_file(tmp_path):
     [
         lambda s: s.save(),
         lambda s: s.set("max_workers", "4"),
-        lambda s: s.unset("default_account"),
+        lambda s: s.unset("run_command"),
         lambda s: s.migrate(),
         lambda s: s.reset(),
     ],
@@ -308,7 +308,7 @@ def test_serialization_failure_leaves_the_original_intact(tmp_path):
     [
         lambda s: s.save(),
         lambda s: s.set("max_workers", "4"),
-        lambda s: s.unset("default_account"),
+        lambda s: s.unset("run_command"),
         lambda s: s.migrate(),
         lambda s: s.reset(),
         lambda s: s.recover(),
@@ -330,7 +330,7 @@ def test_library_entry_points_raise_config_lock_error(tmp_path, monkeypatch, mut
     "args",
     [
         ["config", "set", "max_workers", "4"],
-        ["config", "unset", "default_account"],
+        ["config", "unset", "run_command"],
         ["config", "migrate"],
         ["config", "reset"],
         ["config", "recover", "--reset"],

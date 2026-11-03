@@ -15,7 +15,6 @@ import megabasterd_cli.commands.download_cmd as download_cmd_module
 from megabasterd_cli.cli import cli
 from megabasterd_cli.core.downloader import DownloadResult, MegaDownloader
 from megabasterd_cli.core.errors import TransferError
-from megabasterd_cli.core.uploader import MegaUploader, UploadResult
 
 FILE_URL = "https://mega.nz/file/abc123#xyz"
 FILE_URL_2 = "https://mega.nz/file/def456#uvw"
@@ -74,82 +73,6 @@ def test_invalid_link_counts_as_failure(cli_env):
     runner = CliRunner()
     result = runner.invoke(cli, ["-q", "download", "not-a-mega-link", "-o", str(cli_env / "o")])
     assert result.exit_code == 1
-
-
-def _setup_account(tmp_path):
-    from megabasterd_cli.accounts.manager import AccountManager
-    from megabasterd_cli.config import accounts_file
-
-    mgr = AccountManager(accounts_file())
-    mgr.unlock("pp")
-    mgr.add_account("acc@example.com", "secret", make_default=True)
-
-
-def _fake_login(self, email, password, mfa_code=None, mfa_prompt=None):
-    from megabasterd_cli.core.client import MegaSession
-
-    self.session = MegaSession(sid="sid", master_key=b"\x00" * 16, email=email)
-    return self.session
-
-
-def test_failed_upload_exits_nonzero(cli_env, monkeypatch, tmp_path):
-    from megabasterd_cli.core.client import MegaClient
-
-    _setup_account(cli_env)
-    monkeypatch.setattr(MegaClient, "login", _fake_login)
-    monkeypatch.setattr(MegaClient, "logout", lambda self: None)
-
-    def boom(self, source, **kwargs):
-        raise TransferError(message="simulated upload failure")
-
-    monkeypatch.setattr(MegaUploader, "upload_file", boom)
-    src = tmp_path / "up.bin"
-    src.write_bytes(b"data")
-    runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        ["-q", "upload", str(src), "--vault-passphrase", "pp", "-a", "acc@example.com"],
-    )
-    assert result.exit_code == 1
-
-
-def test_successful_upload_exits_zero(cli_env, monkeypatch, tmp_path):
-    from megabasterd_cli.core.client import MegaClient
-
-    _setup_account(cli_env)
-    monkeypatch.setattr(MegaClient, "login", _fake_login)
-    monkeypatch.setattr(MegaClient, "logout", lambda self: None)
-
-    def ok(self, source, **kwargs):
-        return UploadResult(file_handle="H", name=source.name, size=4, elapsed_seconds=0.2)
-
-    monkeypatch.setattr(MegaUploader, "upload_file", ok)
-    src = tmp_path / "up.bin"
-    src.write_bytes(b"data")
-    runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        ["-q", "upload", str(src), "--vault-passphrase", "pp", "-a", "acc@example.com"],
-    )
-    assert result.exit_code == 0, result.output
-
-
-def test_queue_run_exits_nonzero_and_keeps_item_statuses(cli_env, monkeypatch):
-    from megabasterd_cli.config import data_dir
-    from megabasterd_cli.queue.manager import JobStatus, QueueManager
-
-    runner = CliRunner()
-    add = runner.invoke(cli, ["-q", "queue", "add-download", FILE_URL, "-o", str(cli_env / "out")])
-    assert add.exit_code == 0
-
-    def boom(self, url, output_dir, **kwargs):
-        raise TransferError(message="simulated failure")
-
-    monkeypatch.setattr(MegaDownloader, "download_link", boom)
-    result = runner.invoke(cli, ["-q", "queue", "run"])
-    assert result.exit_code == 1
-    q = QueueManager(data_dir() / "queue.json")
-    assert q.items[0].status == JobStatus.FAILED.value
 
 
 def test_selection_cancellation_is_a_skip_not_a_failure(cli_env, monkeypatch):

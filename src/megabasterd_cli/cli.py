@@ -15,28 +15,10 @@ import click
 from rich.text import Text
 
 from . import __version__
-from .commands.account_cmd import account
-from .commands.cloud_cmd import (
-    import_cmd,
-    ls_cmd,
-    mkdir_cmd,
-    mv_cmd,
-    rename_cmd,
-    rm_cmd,
-    search_cmd,
-    trash_cmd,
-)
 from .commands.config_cmd import config_cmd
-from .commands.crypter_cmd import crypter_cmd
 from .commands.download_cmd import download
-from .commands.file_ops_cmd import merge_cmd, split_cmd, thumbnail_cmd
 from .commands.info_cmd import info_cmd
 from .commands.proxy_cmd import proxy_cmd
-from .commands.queue_cmd import queue
-from .commands.share_cmd import share_cmd
-from .commands.stream_cmd import stream
-from .commands.upload_cmd import upload
-from .commands.watch_cmd import watch_cmd
 from .config import ConfigStore, config_file, data_dir, log_dir, user_dir
 from .core.downloader import MegaDownloader
 from .ui.theme import make_console
@@ -45,22 +27,14 @@ from .utils.logger import setup_logging
 console = make_console()
 
 
-LINK_MARKERS = ("mega.nz/", "mega.co.nz/", "mc://", "mega://")
+LINK_MARKERS = ("mega.nz/", "mega.co.nz/", "mega://")
 
 
 def _redacted_argv(argv: list[str]) -> list[str]:
     """Hide share keys, passwords, and token-like values in debug logs."""
     redacted: list[str] = []
     sensitive_next = False
-    sensitive_options = {
-        "-p",
-        "--password",
-        "--share-password",
-        "--vault-passphrase",
-        "--mfa-code",
-        "--elc-api-key",
-        "--token",
-    }
+    sensitive_options = {"-p", "--password"}
     for arg in argv:
         if sensitive_next:
             redacted.append("<redacted>")
@@ -120,11 +94,8 @@ def _config_summary_for_log(store: ConfigStore) -> dict[str, object]:
         "log_dir": str(log_dir()),
         "download_path": cfg.download_path,
         "max_workers": cfg.max_workers,
-        "upload_workers": cfg.upload_workers,
         "max_parallel_downloads": cfg.max_parallel_downloads,
-        "max_parallel_uploads": cfg.max_parallel_uploads,
         "speed_limit_kbps": cfg.speed_limit_kbps,
-        "upload_speed_limit_kbps": cfg.upload_speed_limit_kbps,
         "verify_integrity": cfg.verify_integrity,
         "auto_resume": cfg.auto_resume,
         "keep_state_files_on_error": cfg.keep_state_files_on_error,
@@ -253,37 +224,8 @@ def cli(ctx: click.Context, verbose: int, quiet: bool, log_file: bool | None) ->
     )
 
 
-# Transfer commands
 cli.add_command(download)
-cli.add_command(upload)
-cli.add_command(stream)
-
-# Cloud operations
-cli.add_command(ls_cmd)
-cli.add_command(mkdir_cmd)
-cli.add_command(rm_cmd)
-cli.add_command(mv_cmd)
-cli.add_command(rename_cmd)
-cli.add_command(search_cmd)
-cli.add_command(import_cmd)
-cli.add_command(trash_cmd)
-cli.add_command(share_cmd)
 cli.add_command(info_cmd)
-
-# Local Crypter + MegaCrypter operations
-cli.add_command(crypter_cmd)
-
-# Local file ops
-cli.add_command(split_cmd)
-cli.add_command(merge_cmd)
-cli.add_command(thumbnail_cmd)
-
-# Automation
-cli.add_command(watch_cmd)
-
-# Management
-cli.add_command(account)
-cli.add_command(queue)
 cli.add_command(proxy_cmd)
 cli.add_command(config_cmd, name="config")
 

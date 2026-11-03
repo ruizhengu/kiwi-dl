@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import megabasterd_cli.utils.hooks as hooks_module
@@ -55,52 +54,3 @@ def _warm_platform_cache() -> None:
     import platform
 
     platform.system()
-
-
-def test_clipboard_missing_pyperclip_falls_back(monkeypatch):
-    import megabasterd_cli.commands.watch_cmd as watch_module
-
-    _warm_platform_cache()
-    monkeypatch.setitem(sys.modules, "pyperclip", None)  # import raises ImportError
-
-    def fake_check_output(cmd, **kwargs):
-        return b"https://mega.nz/file/x#y"
-
-    monkeypatch.setattr("subprocess.check_output", fake_check_output)
-    assert "mega.nz" in watch_module._read_clipboard()
-
-
-def test_clipboard_backend_failure_falls_back(monkeypatch):
-    import types
-
-    import megabasterd_cli.commands.watch_cmd as watch_module
-
-    class FakePyperclipError(RuntimeError):
-        pass
-
-    fake = types.ModuleType("pyperclip")
-    fake.PyperclipException = FakePyperclipError
-
-    def broken_paste():
-        raise FakePyperclipError("could not find a copy/paste mechanism")
-
-    fake.paste = broken_paste
-    _warm_platform_cache()
-    monkeypatch.setitem(sys.modules, "pyperclip", fake)
-
-    def fake_check_output(cmd, **kwargs):
-        return b"fallback text"
-
-    monkeypatch.setattr("subprocess.check_output", fake_check_output)
-    assert watch_module._read_clipboard() == "fallback text"
-
-
-def test_clipboard_working_pyperclip_is_preferred(monkeypatch):
-    import types
-
-    import megabasterd_cli.commands.watch_cmd as watch_module
-
-    fake = types.ModuleType("pyperclip")
-    fake.paste = lambda: "from-pyperclip"
-    monkeypatch.setitem(sys.modules, "pyperclip", fake)
-    assert watch_module._read_clipboard() == "from-pyperclip"

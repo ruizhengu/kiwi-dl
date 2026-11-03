@@ -103,9 +103,9 @@ def test_every_destructive_confirm_reports_a_decline():
     """
     import inspect
 
-    from megabasterd_cli.commands import account_cmd, proxy_cmd, queue_cmd
+    from megabasterd_cli.commands import proxy_cmd
 
-    for module in (account_cmd, proxy_cmd, queue_cmd):
+    for module in (proxy_cmd,):
         source = inspect.getsource(module)
         assert (
             "if not confirm(" not in source

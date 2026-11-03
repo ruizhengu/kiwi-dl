@@ -20,7 +20,6 @@ import stat
 import pytest
 
 from megabasterd_cli.config import ConfigStore
-from megabasterd_cli.queue.manager import QueueManager
 from megabasterd_cli.utils.corruption import content_digest, preserve_corrupt_file
 
 CORRUPT_A = b'{"episode": "A",,,'
@@ -75,30 +74,6 @@ def test_config_backup_reported_is_the_current_episode(tmp_path):
 # ---------------------------------------------------------------------------
 # Queue
 # ---------------------------------------------------------------------------
-
-
-def test_queue_two_distinct_episodes_produce_two_backups(tmp_path):
-    path = tmp_path / "queue.json"
-
-    path.write_bytes(CORRUPT_A)
-    QueueManager(path=path, lock_timeout=0.5).reset()
-    path.write_bytes(CORRUPT_B)
-    mgr = QueueManager(path=path, lock_timeout=0.5)
-    assert mgr.corrupt_backup is not None
-    assert mgr.corrupt_backup.read_bytes() == CORRUPT_B
-    mgr.reset()
-
-    backups = _backups(tmp_path, "queue.json")
-    assert len(backups) == 2
-    assert {b.read_bytes() for b in backups} == {CORRUPT_A, CORRUPT_B}
-
-
-def test_queue_repeated_loads_of_one_episode_do_not_pile_up(tmp_path):
-    path = tmp_path / "queue.json"
-    path.write_bytes(CORRUPT_A)
-    for _ in range(6):
-        QueueManager(path=path, lock_timeout=0.5)
-    assert len(_backups(tmp_path, "queue.json")) == 1
 
 
 # ---------------------------------------------------------------------------

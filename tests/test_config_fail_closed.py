@@ -27,23 +27,8 @@ MALFORMED = b'{"force_smart_proxy": true, "smart_proxy_enabled": true,,, BROKEN'
 NETWORK_OR_MUTATING = [
     ["download", "https://mega.nz/file/ABCD1234#KEYMATERIAL"],
     ["info", "https://mega.nz/file/ABCD1234#KEYMATERIAL"],
-    ["stream", "https://mega.nz/file/ABCD1234#KEYMATERIAL"],
-    ["upload", "."],
-    ["ls"],
-    ["search", "term"],
-    ["mkdir", "folder"],
-    ["rm", "handle"],
-    ["mv", "handle", "target"],
-    ["rename", "handle", "newname"],
-    ["share", "handle"],
-    ["import", "https://mega.nz/folder/ABCD1234#KEYMATERIAL"],
-    ["account", "refresh-all"],
-    ["account", "info"],
-    ["proxy", "fetch"],
-    ["queue", "run"],
-    ["queue", "add-download", "https://mega.nz/file/ABCD1234#KEYMATERIAL"],
-    ["watch"],
-    ["crypter", "elc-resolve", "mega://elc?QQ=="],
+    ["proxy", "add", "http://proxy.invalid:8080"],
+    ["proxy", "test"],
 ]
 
 # The recovery/inspection surface stays usable: that is how the user fixes it.
@@ -113,12 +98,12 @@ def test_the_refusal_names_the_problem_without_leaking_file_contents(tmp_path, m
     user = tmp_path / "User"
     (user / "Config").mkdir(parents=True)
     (user / "Config" / "config.json").write_bytes(
-        b'{"connect_proxy_password": "sentinel-not-a-real-secret",,, BROKEN'
+        b'{"smart_proxy_url": "sentinel-not-a-real-secret",,, BROKEN'
     )
     monkeypatch.setenv("MEGABASTERD_USER_DIR", str(user))
     monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "Logs"))
-    result = CliRunner().invoke(cli, ["ls"])
+    result = CliRunner().invoke(cli, ["info", "https://mega.nz/file/ABCD1234#KEYMATERIAL"])
     assert result.exit_code != 0
     assert "sentinel-not-a-real-secret" not in result.output
     assert "config" in result.output.lower()

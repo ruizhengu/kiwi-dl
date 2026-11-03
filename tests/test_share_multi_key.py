@@ -22,7 +22,6 @@ from megabasterd_cli.core.crypto import (
     aes_key_wrap_decrypt,
     b64_url_decode,
     b64_url_encode,
-    bytes_to_a32,
     unpack_file_key,
 )
 from megabasterd_cli.core.folder_downloader import MegaFolderDownloader
@@ -35,10 +34,7 @@ from megabasterd_cli.core.share_keys import (
 from tests.fake_mega import (
     FILE,
     FOLDER,
-    MASTER_KEY,
     attrs_of,
-    bytes_from_a32_pair,
-    logged_in_client,
     share_listing,
 )
 
@@ -146,27 +142,6 @@ def test_a_file_in_folder_link_resolves_the_right_key(owner_item):
     _, key_a32, encrypted_attrs = ds._resolve_folder_file(_Downloader(_Api(listing)), parsed)
     aes_key, _, _ = unpack_file_key(key_a32)
     assert attrs_of(b64_url_encode(encrypted_attrs), aes_key) == {"n": "one.mp4"}
-
-
-@pytest.mark.parametrize("owner_item", SHAPES, ids=SHAPE_IDS)
-def test_importing_the_share_rewraps_the_share_key_item(owner_item):
-    client, api = logged_in_client()
-    api.shares[SHARE_ID] = share_listing(FOLDER_KEY, ENTRIES, owner_item=owner_item)
-
-    handles = client.import_public_share(
-        f"https://mega.nz/folder/{SHARE_ID}#{b64_url_encode(FOLDER_KEY)}"
-    )
-
-    assert len(handles) == len(ENTRIES)
-    names = []
-    for name, call in api.calls:
-        if name != "import_node_from_share":
-            continue
-        node_key = aes_key_wrap_decrypt(b64_url_decode(call["wrapped_key"]), MASTER_KEY)
-        is_file = call["node_type"] == FILE
-        attr_key = bytes_from_a32_pair(bytes_to_a32(node_key)) if is_file else node_key[:16]
-        names.append(attrs_of(call["encrypted_attrs"], attr_key)["n"])
-    assert sorted(names) == ["album", "one.mp4", "raw", "two.cr2"]
 
 
 @pytest.mark.parametrize("owner_item", SHAPES, ids=SHAPE_IDS)

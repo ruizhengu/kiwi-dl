@@ -1,16 +1,8 @@
 """Tests for every MEGA URL flavour the parser must accept."""
 
-import base64
-
 import pytest
 
-from megabasterd_cli.core.links import (
-    LinkType,
-    ParsedLink,
-    is_mega_url,
-    parse_link,
-    resolve_encrypted_container_link,
-)
+from megabasterd_cli.core.links import LinkType, is_mega_url, parse_link
 
 
 @pytest.mark.parametrize(
@@ -48,36 +40,22 @@ def test_parse_link_types(url, expected_type, expected_id, expected_key, expecte
     assert p.subpath == expected_sub
 
 
-def test_parse_encrypted_container():
-    blob = base64.b64encode(b"X" * 32).decode("ascii")
-    p = parse_link(f"mega://enc?{blob}")
-    assert p.type == LinkType.ENCRYPTED_CONTAINER
-    assert p.container_variant == "enc"
-    assert p.container_blob == blob
-
-
-def test_parse_encrypted_container_variants():
-    blob = base64.b64encode(b"X" * 32).decode("ascii")
-    for variant in ("enc", "enc2", "fenc", "fenc2"):
-        p = parse_link(f"mega://{variant}?{blob}")
-        assert p.type == LinkType.ENCRYPTED_CONTAINER
-        assert p.container_variant == variant
-
-
-def test_parse_elc_container():
-    p = parse_link("mega://elc?abc_DEF,123")
-    assert p.type == LinkType.ELC_CONTAINER
-    assert p.elc_blob == "abc_DEF,123"
-
-
-def test_is_mega_url_accepts_all_flavors():
+def test_is_mega_url_accepts_mega_hosts_only():
     assert is_mega_url("https://mega.nz/file/ABC#KEY")
     assert is_mega_url("https://mega.co.nz/folder/ABC#KEY")
-    assert is_mega_url("mc://server.example/token")
-    assert is_mega_url("mega://enc?xxx")
-    assert is_mega_url("mega://fenc2?xxx")
-    assert is_mega_url("mega://elc?xxx")
     assert not is_mega_url("https://example.com/file")
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["mc://server.example/token", "mega://enc?xxx", "mega://fenc2?xxx", "mega://elc?xxx"],
+    ids=["megacrypter", "enc", "fenc2", "elc"],
+)
+def test_third_party_link_wrappers_are_not_supported(url):
+    """kiwi-dl reads MEGA's own link formats only."""
+    assert not is_mega_url(url)
+    with pytest.raises(ValueError, match="Not a recognizable MEGA link"):
+        parse_link(url)
 
 
 def test_parse_link_rejects_garbage():
@@ -85,55 +63,3 @@ def test_parse_link_rejects_garbage():
         parse_link("not a url")
     with pytest.raises(ValueError):
         parse_link("https://example.com/file/ABC#KEY")
-
-
-def test_resolve_encrypted_container_roundtrip():
-    """Encrypt a real MEGA URL with the published static key, then decrypt
-    through the parser; confirm we recover the original target."""
-    from Crypto.Cipher import AES
-
-    # Same constants the parser uses
-    key = bytes.fromhex("6B316F36416C2D316B7A3F217A30357958585858585858585858585858585858")
-    iv = bytes.fromhex("79F10A01844A0B27FF5B2D4E0ED3163E")
-    inner = "https://mega.nz/file/ABC123#KEY-456"
-    # AES-CBC NoPadding — pad with null bytes
-    padded = inner.encode("utf-8") + b"\x00" * (16 - len(inner) % 16)
-    if len(padded) % 16:
-        padded += b"\x00" * (16 - len(padded) % 16)
-    ct = AES.new(key, AES.MODE_CBC, iv).encrypt(padded)
-    blob = base64.b64encode(ct).decode("ascii")
-
-    container = ParsedLink(
-        type=LinkType.ENCRYPTED_CONTAINER,
-        public_id="",
-        container_variant="enc",
-        container_blob=blob,
-    )
-    resolved = resolve_encrypted_container_link(container)
-    assert resolved.type == LinkType.FILE
-    assert resolved.public_id == "ABC123"
-    assert resolved.key == "KEY-456"
-
-
-def test_resolve_encrypted_container_uses_variant_hint():
-    """A `mega://enc2?...` blob should be tried with key #2 first."""
-    from Crypto.Cipher import AES
-
-    key2 = bytes.fromhex("ED1F4C200B35139806B260563B3D3876F011B4750F3A1A4A5EFD0BBE67554B44")
-    iv = bytes.fromhex("79F10A01844A0B27FF5B2D4E0ED3163E")
-    inner = "https://mega.nz/file/F2#K2"
-    padded = inner.encode("utf-8") + b"\x00" * (16 - len(inner) % 16)
-    if len(padded) % 16:
-        padded += b"\x00" * (16 - len(padded) % 16)
-    ct = AES.new(key2, AES.MODE_CBC, iv).encrypt(padded)
-    blob = base64.b64encode(ct).decode("ascii")
-
-    container = ParsedLink(
-        type=LinkType.ENCRYPTED_CONTAINER,
-        public_id="",
-        container_variant="enc2",
-        container_blob=blob,
-    )
-    resolved = resolve_encrypted_container_link(container)
-    assert resolved.public_id == "F2"
-    assert resolved.key == "K2"

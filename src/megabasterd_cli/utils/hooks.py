@@ -1,9 +1,7 @@
-"""Post-transfer hooks: run a shell command, append to an upload log."""
+"""Post-download hooks: run a shell command per file and once per batch."""
 
 from __future__ import annotations
 
-import datetime as _dt
-import json
 import logging
 import os
 import shlex
@@ -72,8 +70,8 @@ def run_all_finished_command(
     last file's hook has no way to know it was the last. This is the hook for
     "shut the machine down", "play a sound", "start the next stage".
 
-    `kind` is "download", "upload" or "queue" so one script can serve all
-    three. Nothing secret is passed. An EMPTY batch (nothing attempted) is
+    `kind` is always "download" now; it stays first so scripts written for
+    the upstream CLI keep working. Nothing secret is passed. An EMPTY batch (nothing attempted) is
     filtered here rather than at each call site, so no caller can forget it.
 
     Failure handling matches the per-file hook: fire-and-forget, and a hook
@@ -82,35 +80,3 @@ def run_all_finished_command(
     if not command or succeeded + failed <= 0:
         return
     _spawn_hook(command, [kind, str(succeeded), str(failed)], "all-finished command")
-
-
-def append_upload_log(
-    log_path: str | None,
-    *,
-    local_path: Path,
-    file_handle: str,
-    size: int,
-    elapsed_seconds: float,
-    public_link: str | None = None,
-    account: str | None = None,
-) -> None:
-    """Append a single JSON line summarising an upload to `log_path`."""
-    if not log_path:
-        return
-    record = {
-        "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-        "path": str(local_path),
-        "name": local_path.name,
-        "handle": file_handle,
-        "size": size,
-        "elapsed_seconds": round(elapsed_seconds, 2),
-        "account": account,
-        "public_link": public_link,
-    }
-    p = Path(log_path)
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record) + "\n")
-    except OSError as exc:
-        log.warning("Could not write upload log %s: %s", log_path, exc)

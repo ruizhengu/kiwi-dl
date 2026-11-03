@@ -29,8 +29,8 @@ import pytest
 from megabasterd_cli.utils import secure_log
 from megabasterd_cli.utils.logger import OwnerOnlyRotatingFileHandler, setup_logging
 from megabasterd_cli.utils.secure_log import InsecureLogFileError
-from tests.launcher_helpers import OWNER_ONLY, posix_only, windows_only
-from tests.launcher_helpers import mode as _mode
+from tests.helpers import OWNER_ONLY, posix_only, windows_only
+from tests.helpers import mode as _mode
 
 SENTINEL = "SENTINEL-PW-4471"
 

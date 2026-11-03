@@ -16,10 +16,8 @@ from ..core.crypto import (
     unpack_file_key,
 )
 from ..core.errors import MegaError
-from ..core.link_services import get_megacrypter_info, resolve_elc_links, resolve_megacrypter_link
 from ..core.links import LinkType, parse_link, require_link_key, resolve_password_link
 from ..core.share_keys import share_root_handles, unwrap_share_node_key
-from ..proxy.selector import ProxySelector
 from ..ui.prompts import print_error
 from ..ui.theme import SafeTable, make_console
 from ..utils.helpers import format_bytes
@@ -156,16 +154,12 @@ def _emit(fields: _Fields, json_mode: bool) -> None:
     help="Emit the answer as one JSON object on stdout (folder shares include a file list).",
 )
 @click.option("--password", default=None, help="Password for protected links.")
-@click.option("--elc-user", default=None, help="ELC account user for mega://elc links.")
-@click.option("--elc-api-key", default=None, help="ELC API key for mega://elc links.")
 @click.pass_context
 def info_cmd(
     ctx: click.Context,
     url: str,
     json_mode: bool,
     password: str | None,
-    elc_user: str | None,
-    elc_api_key: str | None,
 ) -> None:
     """Resolve a public URL and print metadata. No account or MFA needed."""
     cfg = ctx.obj["config"]
@@ -173,32 +167,6 @@ def info_cmd(
         parsed = parse_link(url)
     except ValueError as exc:
         print_error(str(exc))
-        return
-
-    if parsed.type == LinkType.ELC_CONTAINER:
-        cfg = ctx.obj["config"]
-        try:
-            links = resolve_elc_links(
-                parsed,
-                accounts=cfg.elc_accounts,
-                user=elc_user,
-                api_key=elc_api_key,
-                timeout=cfg.timeout_seconds,
-                selector=ProxySelector.from_config(cfg),
-            )
-        except Exception as exc:  # noqa: BLE001
-            print_error(f"ELC resolution failed: {exc}")
-            return
-        for link in links:
-            click.echo(f"\n{link}")
-            ctx.invoke(
-                info_cmd,
-                url=link,
-                json_mode=json_mode,
-                password=password,
-                elc_user=elc_user,
-                elc_api_key=elc_api_key,
-            )
         return
 
     if parsed.type == LinkType.PASSWORD_PROTECTED:
@@ -209,44 +177,6 @@ def info_cmd(
             parsed = resolve_password_link(parsed, password)
         except ValueError as exc:
             print_error(str(exc))
-            return
-    elif parsed.type == LinkType.ENCRYPTED_CONTAINER:
-        from ..core.links import resolve_encrypted_container_link
-
-        try:
-            parsed = resolve_encrypted_container_link(parsed)
-        except ValueError as exc:
-            print_error(str(exc))
-            return
-    elif parsed.type == LinkType.MEGACRYPTER:
-        try:
-            parsed = resolve_megacrypter_link(
-                parsed,
-                timeout=cfg.timeout_seconds,
-                password=password,
-                selector=ProxySelector.from_config(cfg),
-            )
-        except ValueError as exc:
-            try:
-                mc_info = get_megacrypter_info(
-                    parsed,
-                    timeout=cfg.timeout_seconds,
-                    password=password,
-                    selector=ProxySelector.from_config(cfg),
-                )
-            except ValueError:
-                print_error(str(exc))
-                return
-            fields = _Fields("MegaCrypter info")
-            fields.add_row("Type", "MegaCrypter file")
-            if mc_info.name:
-                fields.add_row("Name", mc_info.name)
-            if mc_info.size is not None:
-                fields.add_row("Size", format_bytes(mc_info.size), raw=mc_info.size)
-            fields.add_row("File key", "available" if mc_info.key else "missing")
-            if mc_info.noexpire_token:
-                fields.add_row("No-expire token", "available")
-            _emit(fields, json_mode)
             return
 
     api = api_for(cfg)

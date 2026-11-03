@@ -21,42 +21,23 @@ def test_cli_version():
 
 
 def test_cli_subcommands_registered():
-    """Every command we promise in the README must be present in the CLI group."""
-    runner = CliRunner()
-    result = runner.invoke(cli, ["--help"])
-    expected = [
-        "download",
-        "upload",
-        "stream",
-        "ls",
-        "mkdir",
-        "rm",
-        "mv",
-        "rename",
-        "search",
-        "import",
-        "trash",
-        "share",
-        "info",
-        "account",
-        "queue",
-        "proxy",
-        "config",
-        "crypter",
-        "split",
-        "merge",
-        "thumbnail",
-        "watch",
-    ]
-    for cmd in expected:
-        assert cmd in result.output, f"Missing command: {cmd}"
+    """Downloads, link info, the proxy pool and config - nothing else."""
+    result = CliRunner().invoke(cli, ["--help"])
+    listing = result.output.split("Commands:", 1)[1].splitlines()
+    commands = [line.split()[0] for line in listing if line.strip()]
+    for cmd in ("download", "info", "proxy", "config"):
+        assert cmd in commands, f"Missing command: {cmd}"
+    for gone in ("upload", "stream", "ls", "account", "queue", "crypter", "watch", "share"):
+        assert gone not in commands, f"Removed command is back: {gone}"
 
 
-def test_proxy_serve_registered():
-    runner = CliRunner()
-    result = runner.invoke(cli, ["proxy", "--help"])
+def test_proxy_subcommands_bring_your_own_proxies():
+    result = CliRunner().invoke(cli, ["proxy", "--help"])
     assert result.exit_code == 0
-    assert "serve" in result.output
+    for sub in ("add", "remove", "list", "clear", "import", "test"):
+        assert sub in result.output
+    assert "fetch" not in result.output, "kiwi-dl ships no public proxy lists"
+    assert "serve" not in result.output
 
 
 def test_download_has_parallel_option():
@@ -64,28 +45,6 @@ def test_download_has_parallel_option():
     result = runner.invoke(cli, ["download", "--help"])
     assert result.exit_code == 0
     assert "--parallel" in result.output or "-P" in result.output
-
-
-def test_upload_has_share_option():
-    runner = CliRunner()
-    result = runner.invoke(cli, ["upload", "--help"])
-    assert result.exit_code == 0
-    assert "--share" in result.output
-
-
-def test_crypter_subcommands():
-    runner = CliRunner()
-    result = runner.invoke(cli, ["crypter", "--help"])
-    assert result.exit_code == 0
-    for sub in ["encrypt", "decrypt", "make-link", "resolve"]:
-        assert sub in result.output
-
-
-def test_proxy_fetch_registered():
-    runner = CliRunner()
-    result = runner.invoke(cli, ["proxy", "--help"])
-    assert result.exit_code == 0
-    assert "fetch" in result.output
 
 
 def test_download_help():
@@ -96,21 +55,6 @@ def test_download_help():
     assert "--input-file" in result.output or "-i" in result.output
 
 
-def test_upload_help_has_new_options():
-    runner = CliRunner()
-    result = runner.invoke(cli, ["upload", "--help"])
-    assert result.exit_code == 0
-    assert "--keep-structure" in result.output
-    assert "--auto-account" in result.output
-
-
-def test_share_help():
-    runner = CliRunner()
-    result = runner.invoke(cli, ["share", "--help"])
-    assert result.exit_code == 0
-    assert "password" in result.output.lower()
-
-
 def test_info_help():
     runner = CliRunner()
     result = runner.invoke(cli, ["info", "--help"])
@@ -119,31 +63,8 @@ def test_info_help():
 
 
 def test_startup_log_redacts_sensitive_arguments():
-    args = [
-        "download",
-        "https://mega.nz/file/ABC#SECRET",
-        "--password",
-        "secret",
-        "--share-password",
-        "share-secret",
-        "--vault-passphrase",
-        "vault-secret",
-        "--elc-api-key",
-        "key",
-    ]
-
-    assert _redacted_argv(args) == [
-        "download",
-        "<redacted-link>",
-        "--password",
-        "<redacted>",
-        "--share-password",
-        "<redacted>",
-        "--vault-passphrase",
-        "<redacted>",
-        "--elc-api-key",
-        "<redacted>",
-    ]
+    args = ["download", "https://mega.nz/file/ABC#SECRET", "--password", "secret"]
+    assert _redacted_argv(args) == ["download", "<redacted-link>", "--password", "<redacted>"]
 
 
 def test_startup_args_handles_python_module_entrypoint(monkeypatch):

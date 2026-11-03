@@ -1,6 +1,6 @@
 """Persistent state for resumable transfers.
 
-A state file records which chunks of a download/upload have completed so the
+A state file records which chunks of a download have completed so the
 transfer can resume after interruption. The file lives next to the destination
 with a `.mbstate` suffix and is rewritten atomically after each chunk completes.
 """
@@ -16,7 +16,6 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from urllib.parse import urlparse
 
 from .errors import MegaError
 
@@ -34,21 +33,12 @@ STATE_LOCK_TIMEOUT = 10.0
 
 _MAC_HEX_LENGTH = 32  # 16-byte CBC-MAC, hex-encoded
 _MAC_BYTE_LENGTH = _MAC_HEX_LENGTH // 2
-_VALID_TRANSFER_TYPES = frozenset({"download", "upload"})
+_VALID_TRANSFER_TYPES = frozenset({"download"})
 
 # Hex-encoded metadata fields the transfer code decodes with bytes.fromhex.
 _AES_KEY_HEX_LENGTH = 32  # 16-byte AES key
 _NONCE_HEX_LENGTH = 16  # 8-byte nonce
 _PROXY_FINGERPRINT_HEX_LENGTH = 16  # see proxy.quota_router.proxy_fingerprint
-# The uploader already bounds a completion-token response at 4096 bytes
-# (MAX_UPLOAD_RESPONSE_BYTES); the stored hex form is twice that at most.
-_MAX_TOKEN_HEX_LENGTH = 8192
-
-# An `upload_url` in a state file is attacker-controllable in exactly the way a
-# link-supplied ELC/MegaCrypter endpoint is: the uploader POSTs the whole local
-# file there. MEGA hands out upload slots on its own storage domains only, so
-# the host is pinned the same way `links.py` and the CONNECT proxy pin theirs.
-_UPLOAD_HOST_SUFFIXES = ("mega.nz", "mega.co.nz")
 
 
 class StateDurabilityError(MegaError):
@@ -106,39 +96,13 @@ def _validate_hex(value, label: str, *, length: int | None = None, max_length: i
         raise StateCorruptionError(f"metadata {label!r} is not valid hex") from exc
 
 
-def _validate_upload_url(value) -> None:
-    """Refuse any upload endpoint a `.mbstate` file must not be able to name.
-
-    A state file is untrusted input: it is a plain JSON file in a predictable
-    location. Pointing `upload_url` at an attacker's host (with an attacker's
-    `aes_key`) turns the next resume into a full exfiltration of the local
-    file under a key the attacker chose. `validate_safe_target` is the repo's
-    existing control for a link-supplied endpoint (HTTPS, no userinfo, no
-    non-global IP); the host suffix pin is what stops a perfectly "safe"
-    HTTPS host that simply is not MEGA.
-    """
-    from .link_services import UnsafeTargetError, validate_safe_target
-
-    _require(isinstance(value, str), "metadata 'upload_url' must be a string")
-    try:
-        validate_safe_target(value, what="upload")
-    except UnsafeTargetError as exc:
-        raise StateCorruptionError(f"metadata 'upload_url' is unsafe: {exc}") from exc
-    host = (urlparse(value).hostname or "").rstrip(".").lower()
-    _require(
-        any(host == suffix or host.endswith("." + suffix) for suffix in _UPLOAD_HOST_SUFFIXES),
-        f"metadata 'upload_url' points at {host!r}, which is not a MEGA storage host",
-    )
-
-
 def _validate_metadata(metadata) -> None:
     """Type/length/destination-check every metadata key a transfer reads.
 
     `isinstance(metadata, dict)` was the whole check. Everything below was
-    therefore decoded blind by the downloader and uploader - and
-    `bytes.fromhex` raises TypeError (not ValueError) on a JSON number, so a
-    poisoned file escaped the uploader's clear-and-retry self-heal entirely
-    and broke every subsequent attempt.
+    therefore decoded blind by the downloader - and `bytes.fromhex` raises
+    TypeError (not ValueError) on a JSON number, so a poisoned file escaped
+    every self-heal and broke every subsequent attempt.
     """
     _require(isinstance(metadata, dict), "state field 'metadata' must be an object")
 
@@ -146,12 +110,6 @@ def _validate_metadata(metadata) -> None:
         _validate_hex(metadata["aes_key"], "aes_key", length=_AES_KEY_HEX_LENGTH)
     if "nonce" in metadata:
         _validate_hex(metadata["nonce"], "nonce", length=_NONCE_HEX_LENGTH)
-    if "completion_token" in metadata:
-        _validate_hex(
-            metadata["completion_token"], "completion_token", max_length=_MAX_TOKEN_HEX_LENGTH
-        )
-    if "upload_url" in metadata:
-        _validate_upload_url(metadata["upload_url"])
     if "proxied_chunks" in metadata:
         proxied = metadata["proxied_chunks"]
         _require(isinstance(proxied, dict), "metadata 'proxied_chunks' must be an object")
@@ -163,11 +121,6 @@ def _validate_metadata(metadata) -> None:
             _validate_hex(
                 fingerprint, "proxied_chunks fingerprint", length=_PROXY_FINGERPRINT_HEX_LENGTH
             )
-    if "source_identity" in metadata:
-        _require(
-            isinstance(metadata["source_identity"], dict),
-            "metadata 'source_identity' must be an object",
-        )
 
 
 def validate_state_dict(data) -> dict:
@@ -281,8 +234,8 @@ def _state_lock_for(state_path: Path):
 class TransferState:
     """State for an in-progress transfer."""
 
-    transfer_type: str  # "download" or "upload"
-    source: str  # URL for download, file path for upload
+    transfer_type: str  # always "download"
+    source: str  # the link being downloaded
     destination: str
     total_size: int
     format_version: int = STATE_FORMAT_VERSION
@@ -518,8 +471,6 @@ def _flush_transferred_data(state: TransferState) -> None:
     output is silently wrong.
 
     A download writes its destination file directly, so it is flushed here.
-    An upload has no local destination: its durability point is the endpoint's
-    HTTP 200 for the chunk, which already happens before `mark_chunk_done`.
 
     Flushing from a second descriptor is sound - fsync/FlushFileBuffers act on
     the file, not on one handle's buffers.

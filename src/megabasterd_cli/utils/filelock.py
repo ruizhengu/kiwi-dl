@@ -1,4 +1,4 @@
-"""Cross-platform advisory file lock shared by the queue and config stores.
+"""Cross-platform advisory file lock shared by the config, proxy-pool and state stores.
 
 `msvcrt.locking` on Windows and `fcntl.flock` on POSIX both block other
 processes AND other open descriptors in the same process, so two store

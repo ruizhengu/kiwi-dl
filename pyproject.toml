@@ -79,7 +79,7 @@ where = ["src"]
 include = ["megabasterd_cli*"]
 
 [tool.setuptools.package-data]
-megabasterd_cli = ["py.typed", "native/windows/*.c"]
+megabasterd_cli = ["py.typed"]
 
 [tool.black]
 line-length = 100

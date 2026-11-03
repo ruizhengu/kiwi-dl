@@ -178,12 +178,3 @@ def test_the_rejection_is_not_a_retryable_cdn_expiry(monkeypatch):
     with pytest.raises(TransferError) as caught:
         downloader._download_chunk(chunk, b"\x00" * 16, b"\x00" * 8, "unused", state)
     assert not isinstance(caught.value, CdnUrlExpired)
-
-
-def test_streaming_and_downloader_share_one_validator():
-    """Two copies would drift, which is how the downloader lagged behind."""
-    from megabasterd_cli.core import downloader as dl
-    from megabasterd_cli.streaming import server as srv
-
-    assert srv.validate_range_response is validate_range_response
-    assert dl.validate_range_response is validate_range_response

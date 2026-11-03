@@ -18,8 +18,6 @@ import contextlib
 import hashlib
 import logging
 import os
-import platform
-import shutil
 import struct
 import subprocess
 import threading
@@ -116,14 +114,6 @@ def _check_nonce(nonce_bytes: bytes, token_repeated: bytes, threshold: int) -> b
     return bool(head <= threshold)
 
 
-def _project_root() -> Path | None:
-    """Return the source checkout root when running from a source tree."""
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "Run.ps1").is_file():
-            return parent
-    return None
-
-
 def _native_solver_commands() -> list[list[str]]:
     """Return native solver commands in preference order."""
     if os.environ.get("MEGABASTERD_HASHCASH_NATIVE", "").lower() in {
@@ -135,56 +125,13 @@ def _native_solver_commands() -> list[list[str]]:
     }:
         return []
 
+    # An external solver is opt-in: the pure-Python search below is always
+    # available, and nothing is looked up on disk unless the user names it.
     env_solver = os.environ.get("MEGABASTERD_HASHCASH_SOLVER")
-    commands: list[list[str]] = []
-    if env_solver:
-        candidate = Path(env_solver).expanduser()
-        if candidate.is_file():
-            if candidate.suffix.lower() == ".ps1":
-                powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
-                if powershell:
-                    commands.append(
-                        [
-                            powershell,
-                            "-NoProfile",
-                            "-ExecutionPolicy",
-                            "Bypass",
-                            "-File",
-                            str(candidate),
-                        ]
-                    )
-            else:
-                commands.append([str(candidate)])
-        return commands
-
-    if platform.system() != "Windows":
-        return commands
-
-    # Only the source checkout can hold a built solver: `tools/build_hashcash_windows.ps1`
-    # writes to `Bin/hashcash-solver-win64.exe`, and the wheel's package-data ships
-    # `native/windows/*.c` only - never a compiled `.exe` - so an installed package has
-    # nothing to find.
-    source_root = _project_root()
-    if source_root is not None:
-        exe = source_root / "Bin" / "hashcash-solver-win64.exe"
-        if exe.is_file():
-            commands.append([str(exe)])
-
-    powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
-    if powershell and source_root is not None:
-        script = source_root / "tools" / "hashcash_solver_windows.ps1"
-        if script.is_file():
-            commands.append(
-                [
-                    powershell,
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    str(script),
-                ]
-            )
-    return commands
+    if not env_solver:
+        return []
+    candidate = Path(env_solver).expanduser()
+    return [[str(candidate)]] if candidate.is_file() else []
 
 
 def _parse_native_nonce(output: str) -> bytes:
@@ -204,7 +151,7 @@ def _solve_with_native(
     timeout: float,
     workers: int,
 ) -> bytes | None:
-    """Try the Windows native helper. Return None when no helper is available."""
+    """Try the user's external solver. Return None when none is configured."""
     commands = _native_solver_commands()
     if not commands:
         return None

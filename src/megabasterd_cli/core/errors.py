@@ -47,7 +47,7 @@ class MegaError(Exception):
 
 
 class TransferError(MegaError):
-    """Error during a download or upload."""
+    """Error during a download."""
 
 
 class NonRetryableTransferError(TransferError):

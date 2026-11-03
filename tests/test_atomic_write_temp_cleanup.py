@@ -11,7 +11,6 @@ import os
 
 import pytest
 
-from megabasterd_cli.accounts.storage import AccountStorage, AccountStore
 from megabasterd_cli.config import ConfigStore
 
 
@@ -44,22 +43,6 @@ def test_config_save_cleans_temp_on_replace_failure(tmp_path, boom_replace, exc)
     boom_replace(exc)
     with pytest.raises(type(exc)):
         store.save()
-
-    assert _tmp_leftovers(tmp_path) == []
-
-
-@pytest.mark.parametrize(
-    "exc",
-    [PermissionError("locked by antivirus"), OSError("disk full"), KeyboardInterrupt()],
-)
-def test_account_save_cleans_temp_on_replace_failure(tmp_path, boom_replace, exc):
-    storage = AccountStorage(path=tmp_path / "accounts.json")
-    storage.save(AccountStore())
-    assert _tmp_leftovers(tmp_path) == []
-
-    boom_replace(exc)
-    with pytest.raises(type(exc)):
-        storage.save(AccountStore())
 
     assert _tmp_leftovers(tmp_path) == []
 
