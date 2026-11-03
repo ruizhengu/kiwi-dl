@@ -10,9 +10,7 @@ import click
 
 from ..core.crypto import (
     a32_to_bytes,
-    aes_key_wrap_decrypt,
     b64_url_decode,
-    bytes_to_a32,
     decrypt_attributes,
     str_to_a32,
     unpack_file_key,
@@ -20,6 +18,7 @@ from ..core.crypto import (
 from ..core.errors import MegaError
 from ..core.link_services import get_megacrypter_info, resolve_elc_links, resolve_megacrypter_link
 from ..core.links import LinkType, parse_link, require_link_key, resolve_password_link
+from ..core.share_keys import share_root_handles, unwrap_share_node_key
 from ..proxy.selector import ProxySelector
 from ..ui.prompts import print_error
 from ..ui.theme import SafeTable, make_console
@@ -319,11 +318,12 @@ def info_cmd(
                 fields.add_row("Total size", format_bytes(total_size), raw=total_size)
                 _emit(fields, json_mode)
                 return
-            raw_k = file_raw.get("k", "") or ""
-            _, wrapped = raw_k.split(":", 1) if ":" in raw_k else ("", raw_k)
-            key_bytes = aes_key_wrap_decrypt(b64_url_decode(wrapped), folder_key)
-            aes_key, _, _ = unpack_file_key(bytes_to_a32(key_bytes[:32]))
-            attrs = decrypt_attributes(b64_url_decode(file_raw.get("a", "") or ""), aes_key) or {}
+            # `k` may hold several `handle:key` items (see core/share_keys.py).
+            unwrapped = unwrap_share_node_key(file_raw, folder_key, share_root_handles(raw_nodes))
+            if unwrapped is None:
+                print_error(f"No key on {file_handle!r} unwraps with the link key")
+                return
+            attrs = unwrapped[1] or {}
             fields.add_row("Type", "File (in folder share)")
             fields.add_row("Name", attrs.get("n", "?"))
             fields.add_row("Folder ID", folder_id)

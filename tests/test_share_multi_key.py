@@ -167,3 +167,26 @@ def test_importing_the_share_rewraps_the_share_key_item(owner_item):
         attr_key = bytes_from_a32_pair(bytes_to_a32(node_key)) if is_file else node_key[:16]
         names.append(attrs_of(call["encrypted_attrs"], attr_key)["n"])
     assert sorted(names) == ["album", "one.mp4", "raw", "two.cr2"]
+
+
+@pytest.mark.parametrize("owner_item", SHAPES, ids=SHAPE_IDS)
+def test_info_on_a_file_in_folder_link_names_the_file(owner_item, tmp_path, monkeypatch):
+    import json
+
+    from click.testing import CliRunner
+
+    from megabasterd_cli.cli import cli
+    from megabasterd_cli.core.api import MegaAPIClient
+
+    listing = share_listing(FOLDER_KEY, ENTRIES, owner_item=owner_item)
+    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
+    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setattr(
+        MegaAPIClient, "get_public_folder_listing", lambda self, pid: {"f": listing}
+    )
+    url = f"https://mega.nz/folder/{SHARE_ID}#{b64_url_encode(FOLDER_KEY)}/file/file0001"
+
+    result = CliRunner().invoke(cli, ["info", "--json", url])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["name"] == "one.mp4"
