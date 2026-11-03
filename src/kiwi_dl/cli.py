@@ -19,6 +19,7 @@ from .commands.config_cmd import config_cmd
 from .commands.download_cmd import download
 from .commands.info_cmd import info_cmd
 from .commands.proxy_cmd import proxy_cmd
+from .commands.self_cmd import completion_cmd, remove_cmd, update_cmd
 from .config import ConfigStore, config_file, data_dir, log_dir, user_dir
 from .core.downloader import MegaDownloader
 from .ui.theme import make_console
@@ -257,6 +258,9 @@ cli.add_command(download)
 cli.add_command(info_cmd)
 cli.add_command(proxy_cmd)
 cli.add_command(config_cmd, name="config")
+cli.add_command(update_cmd)
+cli.add_command(remove_cmd)
+cli.add_command(completion_cmd)
 
 
 @click.command(
