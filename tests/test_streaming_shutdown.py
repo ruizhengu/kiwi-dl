@@ -32,8 +32,16 @@ def _server() -> StreamingServer:
 
 
 def _rebind(host: str, port: int) -> bool:
-    """True when the address is free again."""
+    """True when the next `mb stream` could bind the address again.
+
+    SO_REUSEADDR because the server binds with it (`HTTPServer.allow_reuse_address`).
+    Without it, the probe also refused a port whose closed connection was still
+    in TIME_WAIT - which happens whenever the server side closes first, a race
+    with the client - although a real restart binds through that fine. A live
+    listener still blocks the probe either way, so a leak is still caught.
+    """
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         probe.bind((host, port))
         return True
