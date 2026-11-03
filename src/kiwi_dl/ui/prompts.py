@@ -49,6 +49,17 @@ def ask(question: str, default: str | None = None) -> str:
     return answer.strip() or (default or "")
 
 
+def ask_secret(question: str) -> str:
+    """Like `ask`, but the answer is not echoed (a link password)."""
+    from getpass import getpass
+
+    _console.print(styled_prompt(question), end="")
+    try:
+        return getpass("").strip()
+    except EOFError:
+        return ""
+
+
 _YES = ("y", "yes")
 _NO = ("n", "no")
 

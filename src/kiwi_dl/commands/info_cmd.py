@@ -153,7 +153,12 @@ def _emit(fields: _Fields, json_mode: bool) -> None:
     is_flag=True,
     help="Emit the answer as one JSON object on stdout (folder shares include a file list).",
 )
-@click.option("--password", default=None, help="Password for protected links.")
+@click.option(
+    "--password",
+    default=None,
+    envvar="KIWI_DL_PASSWORD",
+    help="Password for protected links (or set KIWI_DL_PASSWORD).",
+)
 @click.pass_context
 def info_cmd(
     ctx: click.Context,
