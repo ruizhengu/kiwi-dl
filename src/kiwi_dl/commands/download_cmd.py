@@ -9,6 +9,7 @@ from pathlib import Path
 
 import click
 
+from ..config import default_download_dir
 from ..core.api import MegaAPIClient
 from ..core.downloader import MegaDownloader
 from ..core.links import LinkType, parse_link, resolve_password_link
@@ -50,7 +51,7 @@ def _read_links_file(path: Path) -> list[str]:
     "output_dir",
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
-    help="Destination directory (defaults to config download_path).",
+    help="Destination directory (default: config download_path, else the current directory).",
 )
 @click.option(
     "-w",
@@ -187,7 +188,9 @@ def download(
         print_error("No URLs given. Pass URLs as arguments or use -i <file>.")
         ctx.exit(2)
 
-    output_dir = output_dir or Path(cfg.download_path)
+    output_dir = output_dir or (
+        Path(cfg.download_path).expanduser() if cfg.download_path else default_download_dir()
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     # Folder-link file selection (parity with MegaBasterd's FolderLinkDialog):
     # glob filters first, then the interactive picker on whatever remains.

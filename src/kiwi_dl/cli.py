@@ -228,8 +228,7 @@ def _bootstrap(
         verbose,
     )
     log.debug(
-        "Runtime paths project_root=%s user_dir=%s data_dir=%s log_dir=%s",
-        os.environ.get("MEGABASTERD_PROJECT_ROOT", "<auto>"),
+        "Runtime paths user_dir=%s data_dir=%s log_dir=%s",
         user_dir(),
         data_dir(),
         log_dir(),

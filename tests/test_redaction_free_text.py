@@ -234,7 +234,6 @@ def test_cli_error_text_is_sanitized(tmp_path, monkeypatch):
     from kiwi_dl.cli import cli
 
     monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "User"))
-    monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     runner = CliRunner()  # streams mixed: assert over everything the user sees
     result = runner.invoke(cli, ["download", "https://mega.nz/file/ABCD1234#SUPERSECRETKEYVALUE"])
     assert "SUPERSECRETKEYVALUE" not in result.output

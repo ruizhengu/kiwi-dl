@@ -6,6 +6,7 @@ import contextlib
 import json
 import logging
 import os
+import sys
 import threading
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -75,7 +76,7 @@ def _warn_once(key: str, message: str) -> None:
 class Config:
     """User-tunable settings."""
 
-    download_path: str = ""  # Defaults to <project>/Output
+    download_path: str = ""  # Empty = the current directory at download time
     max_workers: int = 8
     max_parallel_downloads: int = 6  # Number of files downloading simultaneously
     speed_limit_kbps: float = 0  # Aggregate per-command download cap; 0 = unlimited
@@ -228,48 +229,71 @@ def display_value(key: str, value):
     return value
 
 
+def _xdg(variable: str, default: str) -> Path:
+    """An XDG base directory: the variable when it holds an absolute path (the
+    spec says to ignore a relative one), else the spec's default under $HOME."""
+    value = os.environ.get(variable, "")
+    return Path(value) if value and Path(value).is_absolute() else Path.home() / default
+
+
+def _platform_dirs() -> tuple[Path, Path, Path]:
+    """Where this platform keeps an application's (config, data, logs).
+
+    Never the current directory: an installed CLI used to fall back to it, so
+    config, proxies and logs landed in `./User/` of whatever folder it ran from.
+    """
+    if sys.platform == "darwin":
+        support = Path.home() / "Library" / "Application Support" / APP_NAME
+        return support, support, Path.home() / "Library" / "Logs" / APP_NAME
+    if os.name == "nt":
+        roaming = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        base = Path(roaming) / APP_NAME
+        return base, base, base / "Logs"
+    return (
+        _xdg("XDG_CONFIG_HOME", ".config") / APP_NAME,
+        _xdg("XDG_DATA_HOME", ".local/share") / APP_NAME,
+        _xdg("XDG_STATE_HOME", ".local/state") / APP_NAME / "logs",
+    )
+
+
+def _home_override() -> Path | None:
+    """`KIWI_DL_HOME`: keep everything under one directory instead (Config/,
+    Data/, Logs/) - for a portable setup, and how the tests isolate themselves."""
+    value = os.environ.get("KIWI_DL_HOME")
+    return Path(value).expanduser().resolve() if value else None
+
+
 def config_dir() -> Path:
-    return user_dir() / "Config"
+    home = _home_override()
+    return home / "Config" if home else _platform_dirs()[0]
 
 
 def data_dir() -> Path:
-    return user_dir() / "Data"
+    home = _home_override()
+    return home / "Data" if home else _platform_dirs()[1]
 
 
 def log_dir() -> Path:
     env_log = os.environ.get("KIWI_DL_LOG_DIR")
     if env_log:
         return Path(env_log).expanduser().resolve()
-    return user_dir() / "Logs"
+    home = _home_override()
+    return home / "Logs" if home else _platform_dirs()[2]
 
 
 def config_file() -> Path:
     return config_dir() / "config.json"
 
 
-def project_root() -> Path:
-    """Return the source project root when the script launcher provides it."""
-    env_root = os.environ.get("MEGABASTERD_PROJECT_ROOT")
-    if env_root:
-        return Path(env_root).expanduser().resolve()
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        if (parent / "Run.ps1").is_file():
-            return parent
-    return Path.cwd().resolve()
-
-
 def user_dir() -> Path:
-    """Directory for local user data owned by the source checkout."""
-    env_user = os.environ.get("KIWI_DL_HOME")
-    if env_user:
-        return Path(env_user).expanduser().resolve()
-    return project_root() / "User"
+    """kiwi-dl's own directory: `KIWI_DL_HOME`, else where it keeps its data."""
+    return _home_override() or _platform_dirs()[1]
 
 
 def default_download_dir() -> Path:
-    """Default download directory used when no config override is present."""
-    return project_root() / "Output"
+    """Where a download lands without `-o` or `download_path`: the current
+    directory, as with `curl -O` or `wget`."""
+    return Path.cwd()
 
 
 class ConfigStore:
@@ -341,9 +365,7 @@ class ConfigStore:
             raise ConfigCorruptionError(self._corrupt_reason)
 
     def _defaults(self) -> Config:
-        cfg = Config()
-        cfg.download_path = str(default_download_dir())
-        return cfg
+        return Config()
 
     @property
     def corrupt_backup(self) -> Path | None:
@@ -438,8 +460,6 @@ class ConfigStore:
             # Old persisted default carried a hard-coded version; empty means
             # "derive from the installed package version".
             cfg.user_agent = ""
-        if not cfg.download_path:
-            cfg.download_path = str(default_download_dir())
         return cfg
 
     def save(self) -> None:

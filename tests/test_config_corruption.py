@@ -120,7 +120,6 @@ def corrupt_env(tmp_path, monkeypatch):
     (user / "Config").mkdir(parents=True)
     (user / "Config" / "config.json").write_bytes(MALFORMED)
     monkeypatch.setenv("KIWI_DL_HOME", str(user))
-    monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     return user / "Config" / "config.json"
 
 
@@ -166,7 +165,6 @@ def test_cli_no_secret_from_corrupt_file_in_output(tmp_path, monkeypatch):
     (user / "Config").mkdir(parents=True)
     (user / "Config" / "config.json").write_bytes(SECRET_IN_FILE)
     monkeypatch.setenv("KIWI_DL_HOME", str(user))
-    monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     result = _runner().invoke(cli, ["config", "recover"])
     assert "s3cr3t" not in (result.output + (result.stderr or ""))
 
@@ -192,7 +190,6 @@ def valid_env(tmp_path, monkeypatch):
     path = user / "Config" / "config.json"
     path.write_text(json.dumps({"max_workers": 7}), encoding="utf-8")
     monkeypatch.setenv("KIWI_DL_HOME", str(user))
-    monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     return path
 
 
