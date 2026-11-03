@@ -684,16 +684,77 @@ class MegaDownloader:
                 )
             )
 
+        self._fetch_chunks(
+            pending,
+            aes_key,
+            nonce,
+            destination,
+            state,
+            all_chunks,
+            _emit_progress if on_progress else None,
+        )
+
+        # Integrity check
+        integrity_ok = True
+        if self.verify_integrity:
+            integrity_ok = self._verify_integrity(
+                all_chunks, aes_key, nonce, mac_iv_a32, destination
+            )
+            if not integrity_ok and self._refetch_proxied_chunks(
+                all_chunks,
+                aes_key,
+                nonce,
+                destination,
+                state,
+                _emit_progress if on_progress else None,
+            ):
+                integrity_ok = self._verify_integrity(
+                    all_chunks, aes_key, nonce, mac_iv_a32, destination
+                )
+            if not integrity_ok:
+                state_path = state_path_for(destination)
+                if self.keep_state_files_on_error:
+                    message = (
+                        "File MAC verification failed. Delete the resume state file and retry: "
+                        f"{state_path}"
+                    )
+                else:
+                    clear_state(destination)
+                    message = "File MAC verification failed; resume state was removed."
+                raise IntegrityError(message=message)
+
+        clear_state(destination)
+        # Elapsed covers the whole operation including integrity verification,
+        # matching the uploader's result semantics.
+        elapsed = time.monotonic() - self._start_time
+        return DownloadResult(
+            path=destination, size=file_size, elapsed_seconds=elapsed, integrity_ok=integrity_ok
+        )
+
+    def _fetch_chunks(
+        self,
+        chunks: list[Chunk],
+        aes_key: bytes,
+        nonce: bytes,
+        destination: Path,
+        state: TransferState,
+        all_chunks: list[Chunk],
+        emit_progress: Callable[[], None] | None,
+    ) -> None:
+        """Fetch `chunks` on the worker pool and save what committed.
+
+        Raises unless every chunk of `all_chunks` is committed afterwards.
+        """
         # Spawn workers. The pool exits (joining every worker) before the
         # ticker does, so the ticker's final emit reports 100% of the bytes.
         try:
             with (
-                progress_ticker(_emit_progress if on_progress else None, "mega-progress"),
+                progress_ticker(emit_progress, "mega-progress"),
                 ThreadPoolExecutor(max_workers=self.max_workers) as pool,
             ):
                 futures = []
                 try:
-                    for chunk in pending:
+                    for chunk in chunks:
                         if self._stop_event.is_set():
                             break
                         fut = pool.submit(
@@ -778,31 +839,42 @@ class MegaDownloader:
                 )
             )
 
-        # Integrity check
-        integrity_ok = True
-        if self.verify_integrity:
-            integrity_ok = self._verify_integrity(
-                all_chunks, aes_key, nonce, mac_iv_a32, destination
-            )
-            if not integrity_ok:
-                state_path = state_path_for(destination)
-                if self.keep_state_files_on_error:
-                    message = (
-                        "File MAC verification failed. Delete the resume state file and retry: "
-                        f"{state_path}"
-                    )
-                else:
-                    clear_state(destination)
-                    message = "File MAC verification failed; resume state was removed."
-                raise IntegrityError(message=message)
+    def _refetch_proxied_chunks(
+        self,
+        all_chunks: list[Chunk],
+        aes_key: bytes,
+        nonce: bytes,
+        destination: Path,
+        state: TransferState,
+        emit_progress: Callable[[], None] | None,
+    ) -> bool:
+        """After a failed MAC check, fetch the proxied chunks again; False if there were none.
 
-        clear_state(destination)
-        # Elapsed covers the whole operation including integrity verification,
-        # matching the uploader's result semantics.
-        elapsed = time.monotonic() - self._start_time
-        return DownloadResult(
-            path=destination, size=file_size, elapsed_seconds=elapsed, integrity_ok=integrity_ok
+        CDN URLs are plain http, so a proxy can hand back altered bytes and only
+        the whole-file MAC will notice - with no way to tell which chunk. Direct
+        chunks are trusted, so only the ones that came through proxies are
+        fetched again, after every proxy that served one is banned. One round:
+        the caller checks the MAC again and gives up if it still fails.
+        """
+        proxied = state.proxied_chunks()
+        if not proxied:
+            return False
+        self._router.ban_fingerprints(
+            set(proxied.values()), why="served chunks of a file that failed its MAC check"
         )
+        redo = [c for c in all_chunks if c.index in proxied]
+        log.warning(
+            "File MAC check failed; fetching the %d chunk(s) that came through proxies again",
+            len(redo),
+        )
+        with self._lock:
+            state.forget_chunks(c.index for c in redo)
+            self._bytes_done -= sum(c.size for c in redo)
+            self._chunks_done -= len(redo)
+            snapshot = snapshot_state(state)
+        save_state(snapshot)
+        self._fetch_chunks(redo, aes_key, nonce, destination, state, all_chunks, emit_progress)
+        return True
 
     def _is_usable_download_state(
         self,

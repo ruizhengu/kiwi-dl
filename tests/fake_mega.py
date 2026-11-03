@@ -445,6 +445,9 @@ class FakeCdn:
         self.time_left = 20226
         self.burned: set[str] = set()
         self.proxy_status: dict[str, int] = {}  # route -> the HTTP status that proxy answers
+        # Routes that alter what they relay. CDN URLs are plain http, so a proxy
+        # can, and nothing but the whole-file MAC would notice.
+        self.corrupt_routes: set[str] = set()
 
     def issue_url(self) -> str:
         """A fresh CDN URL, as the `a:g` resolver would hand out."""
@@ -477,6 +480,8 @@ class FakeCdn:
                 record["status"] = 509
                 return _CdnResponse(509, {"X-MEGA-Time-Left": str(self.time_left), **closing})
             self.served[route] = self.served.get(route, 0) + len(body)
+        if route in self.corrupt_routes:
+            body = bytes([body[0] ^ 0xFF]) + body[1:]
         record["status"] = 206
         return _CdnResponse(
             206,

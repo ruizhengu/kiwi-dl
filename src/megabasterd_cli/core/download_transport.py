@@ -19,7 +19,7 @@ import logging
 
 import requests
 
-from ..proxy.quota_router import Route, RouteAgain
+from ..proxy.quota_router import Route, RouteAgain, proxy_fingerprint
 from .chunks import Chunk, chunk_mac
 from .crypto import ctr_offset_to_counter, make_ctr_cipher
 from .errors import NonRetryableTransferError, RetryableTransferError, TransferError
@@ -198,6 +198,9 @@ def fetch_chunk(
 
     with dl._lock:
         state.mark_chunk_done(chunk.index, mac)
+        state.mark_chunk_proxied(
+            chunk.index, proxy_fingerprint(route.proxy) if proxied and route.proxy else None
+        )
         dl._bytes_done += chunk.size
         dl._chunks_done += 1
         bytes_done_now = dl._bytes_done

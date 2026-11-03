@@ -39,6 +39,7 @@ _VALID_TRANSFER_TYPES = frozenset({"download", "upload"})
 # Hex-encoded metadata fields the transfer code decodes with bytes.fromhex.
 _AES_KEY_HEX_LENGTH = 32  # 16-byte AES key
 _NONCE_HEX_LENGTH = 16  # 8-byte nonce
+_PROXY_FINGERPRINT_HEX_LENGTH = 16  # see proxy.quota_router.proxy_fingerprint
 # The uploader already bounds a completion-token response at 4096 bytes
 # (MAX_UPLOAD_RESPONSE_BYTES); the stored hex form is twice that at most.
 _MAX_TOKEN_HEX_LENGTH = 8192
@@ -151,6 +152,17 @@ def _validate_metadata(metadata) -> None:
         )
     if "upload_url" in metadata:
         _validate_upload_url(metadata["upload_url"])
+    if "proxied_chunks" in metadata:
+        proxied = metadata["proxied_chunks"]
+        _require(isinstance(proxied, dict), "metadata 'proxied_chunks' must be an object")
+        for index, fingerprint in proxied.items():
+            _require(
+                isinstance(index, str) and index.isdecimal(),
+                "metadata 'proxied_chunks' keys must be chunk indexes",
+            )
+            _validate_hex(
+                fingerprint, "proxied_chunks fingerprint", length=_PROXY_FINGERPRINT_HEX_LENGTH
+            )
     if "source_identity" in metadata:
         _require(
             isinstance(metadata["source_identity"], dict),
@@ -302,6 +314,36 @@ class TransferState:
         if mac is not None:
             self.chunk_macs[index] = mac.hex()
 
+    def mark_chunk_proxied(self, index: int, proxy_fingerprint: str | None) -> None:
+        """Record the proxy that served a committed chunk; None means it came direct.
+
+        Kept in the state so a MAC failure after a resume still knows which
+        chunks to distrust. Only a fingerprint of the proxy's address is
+        stored, never its URL: proxy URLs carry credentials.
+        """
+        if proxy_fingerprint is not None:
+            self.metadata.setdefault("proxied_chunks", {})[str(index)] = proxy_fingerprint
+        elif self.metadata.get("proxied_chunks"):
+            self.metadata["proxied_chunks"].pop(str(index), None)
+
+    def proxied_chunks(self) -> dict[int, str]:
+        """Committed chunks that came through a proxy: index -> proxy fingerprint."""
+        done = self.completed_set
+        return {
+            int(index): fingerprint
+            for index, fingerprint in (self.metadata.get("proxied_chunks") or {}).items()
+            if int(index) in done
+        }
+
+    def forget_chunks(self, indexes) -> None:
+        """Mark chunks as not downloaded again, so they are fetched anew."""
+        drop = set(indexes)
+        self.completed_chunks = [i for i in self.completed_chunks if i not in drop]
+        proxied = self.metadata.get("proxied_chunks") or {}
+        for index in drop:
+            self.chunk_macs.pop(index, None)
+            proxied.pop(str(index), None)
+
     def get_chunk_mac(self, index: int) -> bytes | None:
         hex_mac = self.chunk_macs.get(index)
         return bytes.fromhex(hex_mac) if hex_mac else None
@@ -322,7 +364,9 @@ def snapshot_state(state: TransferState) -> TransferState:
         state,
         completed_chunks=list(state.completed_chunks),
         chunk_macs=dict(state.chunk_macs),
-        metadata=dict(state.metadata),
+        # One level deeper than the rest: `proxied_chunks` is a dict workers
+        # keep writing to while the snapshot is serialized outside the lock.
+        metadata={k: dict(v) if isinstance(v, dict) else v for k, v in state.metadata.items()},
     )
 
 
