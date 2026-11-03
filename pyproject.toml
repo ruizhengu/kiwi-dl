@@ -31,7 +31,8 @@ classifiers = [
 dependencies = [
     "click>=8.1.0",
     "rich>=13.5.0",
-    "requests>=2.31.0",
+    # [socks]: PySocks, so socks4:// and socks5:// proxies in the pool work.
+    "requests[socks]>=2.31.0",
     "pycryptodome>=3.19.0",
     "tenacity>=8.2.0",
     "cryptography>=41.0.0",
@@ -39,12 +40,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    # <9.2: pytest 9.2 derives Node.nodeid from a structured id, so the
-    # `item._nodeid` write that pytest-xdist (3.8.0) uses to tag xdist_group
-    # members has no effect - `--dist loadgroup` quietly degrades to `load`
-    # and the xdist_group marks in tests/ (sdist_build, launcher_subprocess)
-    # split across workers. Lift this once pytest-xdist supports the new ids.
-    "pytest>=7.4.0,<9.2",
+    "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-xdist>=3.5.0",
     # Required by tests/test_sdist_packaging.py. Without it that test used to
@@ -108,5 +104,5 @@ python_files = ["test_*.py"]
 # module-level state cannot leak between tests that land on different
 # workers - which is also why nothing had to be rewritten to enable this.
 # Override with `-n0` when stepping through a single test in a debugger.
-addopts = "-v --tb=short --strict-markers -n auto --dist loadgroup"
+addopts = "-v --tb=short --strict-markers -n auto"
 pythonpath = ["src"]
