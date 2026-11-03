@@ -615,11 +615,14 @@
     "TransferState.completed_chunks",
     "TransferState.completed_set",
     "TransferState.destination",
+    "TransferState.forget_chunks",
     "TransferState.format_version",
     "TransferState.get_chunk_mac",
     "TransferState.is_chunk_done",
     "TransferState.mark_chunk_done",
+    "TransferState.mark_chunk_proxied",
     "TransferState.metadata",
+    "TransferState.proxied_chunks",
     "TransferState.revision",
     "TransferState.source",
     "TransferState.total_size",
@@ -745,6 +748,7 @@
   ],
   "megabasterd_cli.proxy.quota_router": [
     "ChunkRouter",
+    "ChunkRouter.ban_fingerprints",
     "ChunkRouter.proxy_failed",
     "ChunkRouter.proxy_succeeded",
     "ChunkRouter.route",
@@ -763,7 +767,8 @@
     "SmartProxyPolicy.close_window",
     "SmartProxyPolicy.from_config",
     "SmartProxyPolicy.open_window",
-    "SmartProxyPolicy.proxies_wanted"
+    "SmartProxyPolicy.proxies_wanted",
+    "proxy_fingerprint"
   ],
   "megabasterd_cli.proxy.runtime": [
     "ProxyPoolCorruptionError",

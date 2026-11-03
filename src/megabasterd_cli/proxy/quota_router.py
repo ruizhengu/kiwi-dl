@@ -30,12 +30,14 @@ while the quota is spent, so the API stays direct unless strict.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from ..core.errors import format_time_left
 from ..utils.redaction import redact_text
@@ -208,6 +210,18 @@ def _proxies_for(url: str) -> dict[str, str]:
     return {"http": url, "https": url}
 
 
+def proxy_fingerprint(url: str) -> str:
+    """A short, credential-free identity for a proxy: a hash of scheme://host:port.
+
+    What a resume state stores to remember which proxy served a chunk. The
+    user and password are left out before hashing, so the state file next to
+    a download can neither reveal nor help guess them.
+    """
+    parts = urlsplit(url)
+    endpoint = f"{parts.scheme}://{parts.hostname}:{parts.port}"
+    return hashlib.sha256(endpoint.encode()).hexdigest()[:16]
+
+
 class ChunkRouter:
     """Per-download routing: which proxy each worker thread is on, and what it gave up on."""
 
@@ -250,6 +264,15 @@ class ChunkRouter:
                 "failing; refusing to connect directly"
             )
         return Route(None, fallback=True)
+
+    def ban_fingerprints(self, fingerprints: set[str], *, why: str) -> None:
+        """Ban every pool proxy whose `proxy_fingerprint` is in `fingerprints`."""
+        pool = self.policy.pool
+        if pool is None:
+            return
+        for entry in pool.list():
+            if proxy_fingerprint(entry.url) in fingerprints:
+                self.proxy_failed(Route(_proxies_for(entry.url), entry.url), ban=True, why=why)
 
     def proxy_succeeded(self, route: Route) -> None:
         if route.proxy is not None and self.policy.pool is not None:
