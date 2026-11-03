@@ -228,7 +228,8 @@ def test_stream_releases_the_session_when_setup_fails(sessions, tmp_path, monkey
         "set_source",
         lambda self, url, password=None: (_ for _ in ()).throw(MegaError(message="nope")),
     )
-    _invoke(module.stream, ["https://mega.nz/file/ABCDEFGH#" + "k" * 43], tmp_path)
+    # Port 0: the default port is shared by every other test that binds it.
+    _invoke(module.stream, ["https://mega.nz/file/ABCDEFGH#" + "k" * 43, "--port", "0"], tmp_path)
 
     assert_all_released(sessions)
 

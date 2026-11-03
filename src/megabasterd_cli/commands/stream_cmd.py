@@ -29,7 +29,13 @@ def _dialable_url(bound_host: str, port: int) -> str:
 
 @click.command("stream", short_help="Stream a MEGA file over a local HTTP server.")
 @click.argument("url")
-@click.option("-p", "--port", type=int, default=None, help="Local HTTP port.")
+@click.option(
+    "-p",
+    "--port",
+    type=int,
+    default=None,
+    help="Local HTTP port; 0 picks any free port. Defaults to the streaming_port setting.",
+)
 @click.option("-H", "--host", default=None, help="Bind host.")
 @click.option("--password", default=None, help="Password for protected links.")
 @click.option(
@@ -102,7 +108,9 @@ def stream(
         print_error("Stream supports single-file links only.")
         return
 
-    port = port or cfg.streaming_port
+    # `is None`, not `or`: 0 is a real choice (any free port, printed below),
+    # and `or` silently swapped it for the configured port.
+    port = cfg.streaming_port if port is None else port
     host = host or cfg.streaming_host
 
     # A non-loopback bind exposes decrypted content to other hosts, so it must

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import http.client
 import logging
+import re
 import socket
 import threading
 import time
@@ -27,12 +28,6 @@ import requests
 
 from megabasterd_cli.streaming import server as srv
 from megabasterd_cli.streaming.server import StreamingServer
-
-# These drive the `stream` command, and `stream_cmd` resolves its port with
-# `port or cfg.streaming_port` - so `--port 0` is falsy and every one of them
-# binds the SAME configured port rather than an ephemeral one. Sequentially
-# that is fine; on two xdist workers at once it is EADDRINUSE. One worker.
-pytestmark = pytest.mark.xdist_group("streaming_cli_port")
 
 # Any single blocking client call must finish well inside this.
 HARD_TIMEOUT = 10.0
@@ -435,6 +430,18 @@ def test_ipv6_banner_is_bracketed(monkeypatch, tmp_path):
 
     assert "http://::1:" not in output, "unbracketed IPv6 URL is not dialable"
     assert "http://[::1]:" in output, output
+
+
+def test_port_zero_binds_any_free_port_not_the_configured_one(monkeypatch, tmp_path):
+    """`--port 0` fell back to `streaming_port`, so every server these tests
+    meant to be ephemeral bound the same port and collided across workers."""
+    from megabasterd_cli.config import Config
+
+    output = _banner(monkeypatch, tmp_path, "127.0.0.1")
+    match = re.search(r"http://127\.0\.0\.1:(\d+)/", output)
+
+    assert match, output
+    assert int(match.group(1)) not in (0, Config().streaming_port), output
 
 
 def test_wildcard_bind_advertises_a_dialable_address(monkeypatch, tmp_path):
