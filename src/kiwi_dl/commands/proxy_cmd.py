@@ -85,7 +85,7 @@ def proxy_list(ctx: click.Context, config_urls: bool) -> None:
             pool.add(url)
     entries = pool.list()
     if not entries:
-        _console.print("[mb.dim]No proxies stored.[/mb.dim]")
+        _console.print("[kiwi.muted]No proxies stored.[/kiwi.muted]")
         return
     # SafeTable, not Table: these URLs come from `proxy import` (an arbitrary
     # file) or a pasted list, so a cell is untrusted. One poisoned line with an
@@ -93,14 +93,14 @@ def proxy_list(ctx: click.Context, config_urls: bool) -> None:
     table = SafeTable(
         title="Smart Proxy Pool",
         show_header=True,
-        header_style="mb.table.header",
-        border_style="mb.table.border",
+        header_style="kiwi.table.header",
+        border_style="kiwi.table.border",
     )
-    table.add_column("URL", style="mb.path")
-    table.add_column("Successes", justify="right", style="mb.success")
-    table.add_column("Failures", justify="right", style="mb.error")
+    table.add_column("URL", style="kiwi.path")
+    table.add_column("Successes", justify="right", style="kiwi.success")
+    table.add_column("Failures", justify="right", style="kiwi.error")
     table.add_column("Status")
-    table.add_column("Source", style="mb.muted")
+    table.add_column("Source", style="kiwi.muted")
     for e in entries:
         status = "OK" if e.is_available else "Cooldown"
         source = "persisted" if e.url in persisted else "config"
@@ -299,12 +299,12 @@ def proxy_test(ctx: click.Context) -> None:
     table = SafeTable(
         title="Proxy Reachability",
         show_header=True,
-        header_style="mb.table.header",
-        border_style="mb.table.border",
+        header_style="kiwi.table.header",
+        border_style="kiwi.table.border",
     )
-    table.add_column("URL", style="mb.path")
+    table.add_column("URL", style="kiwi.path")
     table.add_column("Reachable")
-    table.add_column("Latency / reason", style="mb.muted")
+    table.add_column("Latency / reason", style="kiwi.muted")
     reachable = 0
     for entry, future in zip(entries, futures, strict=True):
         # `_safe_source`, not the raw url: a pooled proxy routinely carries

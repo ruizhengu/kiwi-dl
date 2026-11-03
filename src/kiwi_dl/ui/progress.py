@@ -1,33 +1,29 @@
-"""Rich-based progress bars for transfers."""
+"""The live transfer view: one overall row, then one row per file.
+
+➤ mega.nz/folder/AbCdEf
+Overall
+██████████░░░░░░░░░░  58.1% · 1.20 GB / 2.10 GB · 12.40 MB/s · ETA 01:12 · Elapsed 00:41
+✓ part1.mkv
+  ████████████████████ 100.0% · 1.00 GB / 1.00 GB · Done
+↓ part2.mkv
+  ████████░░░░░░░░░░░░  40.0% · 400.00 MB / 1.00 GB · 8.10 MB/s · ETA 01:12
+"""
 
 from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 
-from rich.console import Console, Group
+from rich.console import Group
 from rich.live import Live
-from rich.markup import escape
-from rich.progress import (
-    BarColumn,
-    DownloadColumn,
-    Progress,
-    SpinnerColumn,
-    TaskID,
-    TextColumn,
-    TimeRemainingColumn,
-    TransferSpeedColumn,
-)
 from rich.text import Text
 
 from ..utils.helpers import format_eta
 from ..utils.speed import RollingSpeedMeter
-from .theme import make_console
+from .theme import SYMBOL, make_console
 
-PROGRESS_SEPARATOR = "=" * 120
+SEPARATOR = " · "
 
 # Huge folders: cap the per-file rows painted each frame (totals still cover
 # every file); active rows win, then queued, then finished ones.
@@ -176,18 +172,17 @@ class MultiFileProgressView:
         else:
             self.overall_speed = sum(meter.current(now) for meter in self._row_meters.values())
         width = max(70, min(140, int(getattr(self._console, "width", 100) or 100)))
-        title_style = "#ff5f94" if self.status != "Failed" else "bold red"
-        lines: list[Text] = [Text(_shorten_middle(self.title, width), style=title_style), Text("")]
+        lines: list[Text] = []
+        if self.title:
+            title_style = "kiwi.error" if self.status == "Failed" else "kiwi.title"
+            title = _shorten_middle(self.title, width - 2)
+            lines.append(Text(f"{SYMBOL['group']} {title}", style=title_style))
         for detail in self.details:
-            if not detail:
-                lines.append(Text(""))
-                continue
-            style = "bold #70ffbf" if detail.startswith("Backend:") else "bold #9ed8ff"
-            lines.append(Text(_shorten_middle(detail, width), style=style))
-        if self.details:
-            lines.append(Text(PROGRESS_SEPARATOR[:width], style="bold #70ffbf"))
+            if detail:
+                lines.append(Text(f"  {_shorten_middle(detail, width - 2)}", style="kiwi.muted"))
+        if lines:
             lines.append(Text(""))
-        lines.append(Text("Overall", style="bold #7cf7ff"))
+        lines.append(Text("Overall", style="bold"))
         lines.append(
             self._stats_text(
                 self.overall_completed,
@@ -200,29 +195,24 @@ class MultiFileProgressView:
         visible, hidden = self._visible_rows()
         if visible:
             lines.append(Text(""))
-        for index, (row_number, state) in enumerate(visible, 1):
-            name_style = self._state_style(state.status)
-            prefix = f"File {row_number:02d}: "
+        for _row_number, state in visible:
+            symbol, name_style = self._state_mark(state.status)
             lines.append(
-                Text(
-                    prefix + _shorten_middle(state.name, max(10, width - len(prefix))),
-                    style=name_style,
+                Text(f"{symbol} ", style=name_style).append(
+                    _shorten_middle(state.name, max(10, width - 2))
                 )
             )
-            lines.append(
-                self._stats_text(
-                    state.completed,
-                    state.total,
-                    state.speed,
-                    width,
-                    include_elapsed=False,
-                    status=state.status,
-                )
+            stats = self._stats_text(
+                state.completed,
+                state.total,
+                state.speed,
+                width - 2,
+                include_elapsed=False,
+                status=state.status,
             )
-            if index < len(visible):
-                lines.append(Text(""))
+            lines.append(Text("  ").append_text(stats))
         if hidden:
-            lines.append(Text(f"(+{hidden} more {self.item_label})", style="yellow"))
+            lines.append(Text(f"  … and {hidden} more {self.item_label}", style="kiwi.muted"))
         return Group(*lines)
 
     def _visible_rows(self) -> tuple[list[tuple[int, ProgressFileState]], int]:
@@ -247,11 +237,14 @@ class MultiFileProgressView:
         percent = (completed / total * 100.0) if total else 0.0
         percent = max(0.0, min(100.0, percent))
         # Elapsed is never hidden; on narrow terminals the bar shrinks instead.
-        bar_width = max(12, min(32, width - 96))
+        # 76 is the rest of the overall line at its longest (bytes, speed, ETA,
+        # Elapsed), so the line fits the terminal instead of wrapping.
+        bar_width = max(10, min(30, width - 76))
         remaining = (total - completed) if total else 0
         done = status in {"complete", "downloaded", "resumed"} or bool(total and completed >= total)
         failed = status in {"failed", "error"}
-        stopped = status in {"canceled", "skipped"}
+        # A queued row has no speed or countdown yet, only a state to name.
+        stopped = status in {"canceled", "skipped", "queued"}
         if done:
             speed_label = "Done"
         elif failed:
@@ -272,47 +265,48 @@ class MultiFileProgressView:
             else format_eta(remaining / speed) if total and speed and speed > 1 else "--:--"
         )
         speed_style = (
-            "bold green"
+            "kiwi.success"
             if done
-            else "bold red" if failed else "yellow" if stopped else "bold #39ff6a"
+            else "kiwi.error" if failed else "kiwi.muted" if stopped else "kiwi.value"
         )
         text = Text()
         text.append_text(_rich_bar(percent, bar_width, status))
-        text.append(f" {percent:5.1f}% | ", style="bold #0fd139")
-        text.append(
-            f"{_format_bytes(completed)} / {_format_bytes(total) if total else '?'}",
-            style="bold #8eeeff",
-        )
-        text.append(" | ", style="white")
+        text.append(f" {percent:5.1f}%", style="bold")
+        text.append(SEPARATOR, style="kiwi.muted")
+        text.append(f"{_format_bytes(completed)} / {_format_bytes(total) if total else '?'}")
+        text.append(SEPARATOR, style="kiwi.muted")
         text.append(speed_label, style=speed_style)
         if eta is not None:
             # The separator belongs to this section: leaving it behind renders
-            # "Done |  | Elapsed".
-            text.append(" | ", style="white")
-            text.append("ETA ", style="#ffd04a")
-            text.append(eta, style="#ff8a1f")
+            # "Done ·  · Elapsed".
+            text.append(SEPARATOR, style="kiwi.muted")
+            text.append(f"ETA {eta}", style="kiwi.warning")
         if include_elapsed:
             # Wall-clock operation time from one monotonic clock owned by the
             # view; frozen exactly at terminal state by close().
             elapsed_ref = self.finished_at if self.finished_at is not None else time.perf_counter()
-            text.append(" | Elapsed ", style="white")
-            text.append(format_eta(elapsed_ref - self.started_at), style="bold #d99145")
-            if width >= 124:
-                item_text = f" | {self.completed_items}/{self.total_items} {self.item_label}"
+            text.append(SEPARATOR, style="kiwi.muted")
+            text.append(f"Elapsed {format_eta(elapsed_ref - self.started_at)}", style="kiwi.muted")
+            if width >= 110:
+                item_text = f"{self.completed_items}/{self.total_items} {self.item_label}"
                 if self.failed_items:
                     item_text += f", {self.failed_items} failed"
-                text.append(item_text, style="yellow" if self.failed_items else "cyan")
+                text.append(SEPARATOR, style="kiwi.muted")
+                text.append(item_text, style="kiwi.warning" if self.failed_items else "kiwi.muted")
         return text
 
     @staticmethod
-    def _state_style(status: str) -> str:
+    def _state_mark(status: str) -> tuple[str, str]:
+        """The symbol and style a file row's name carries for its state."""
         if status in {"complete", "downloaded", "resumed"}:
-            return "bold green"
+            return SYMBOL["ok"], "kiwi.success"
         if status in {"failed", "error"}:
-            return "bold red"
-        if status in {"queued", "skipped", "canceled"}:
-            return "yellow"
-        return "bold white"
+            return SYMBOL["fail"], "kiwi.error"
+        if status in {"skipped", "canceled"}:
+            return SYMBOL["skip"], "kiwi.muted"
+        if status == "queued":
+            return SYMBOL["queued"], "kiwi.muted"
+        return SYMBOL["active"], "kiwi.accent"
 
 
 def _format_bytes(size: int | float | None) -> str:
@@ -346,71 +340,10 @@ def _bar_parts(percent: float, width: int) -> tuple[int, int]:
 
 def _rich_bar(percent: float, width: int, status: str = "active") -> Text:
     filled, empty = _bar_parts(percent, width)
-    text = Text()
     failed = status in {"failed", "error"}
-    text.append("━" * filled, style="bold #ff4f6d" if failed else "bold #00bfb9")
-    text.append("─" * empty, style="#5a1f2b" if failed else "#d60044")
+    done = percent >= 100.0
+    fill_style = "kiwi.error" if failed else "kiwi.success" if done else "kiwi.accent"
+    text = Text()
+    text.append("█" * filled, style=fill_style)
+    text.append("░" * empty, style="kiwi.muted")
     return text
-
-
-def build_progress(console: Console | None = None) -> Progress:
-    """Build a Progress object with the standard kiwi-dl column layout.
-
-    Compatibility surface retained for the 1.x series.
-    """
-    return Progress(
-        SpinnerColumn(style="mb.highlight"),
-        TextColumn("[mb.command]{task.description}", justify="right"),
-        BarColumn(
-            bar_width=40,
-            style="mb.dim",
-            complete_style="mb.progress.done",
-            finished_style="mb.success",
-            pulse_style="mb.progress.pulse",
-        ),
-        "[mb.option]{task.percentage:>3.1f}%",
-        "[mb.dim]|[/mb.dim]",
-        DownloadColumn(),
-        "[mb.dim]|[/mb.dim]",
-        TransferSpeedColumn(),
-        "[mb.dim]|[/mb.dim]",
-        TimeRemainingColumn(),
-        console=console,
-        refresh_per_second=4,
-        transient=False,
-    )
-
-
-class ProgressReporter:
-    """Adapter that wires the downloader's progress callback to a Rich task.
-
-    Compatibility surface retained for the 1.x series.
-    """
-
-    def __init__(self, progress: Progress, task_id: TaskID):
-        self.progress = progress
-        self.task_id = task_id
-
-    def update_download(self, p) -> None:
-        # p is DownloadProgress
-        self.progress.update(self.task_id, completed=p.bytes_done, total=p.total_bytes)
-
-    def update_upload(self, p) -> None:
-        # p is UploadProgress
-        self.progress.update(self.task_id, completed=p.bytes_done, total=p.total_bytes)
-
-
-@contextmanager
-def progress_for(description: str, total: int) -> Iterator[ProgressReporter]:
-    """Convenience: create a Progress, add one task, yield a reporter, then close.
-
-    Compatibility surface retained for the 1.x series.
-    """
-    console = make_console()
-    progress = build_progress(console)
-    with progress:
-        # Descriptions are usually filenames, i.e. untrusted remote text.
-        # `add_task` takes a str, so escape the markup rather than wrapping in
-        # a Text the API does not accept.
-        task_id = progress.add_task(escape(description), total=total)
-        yield ProgressReporter(progress, task_id)

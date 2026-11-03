@@ -70,5 +70,5 @@ def test_untrusted_table_cell_via_safe_table(wide_console):
 
 def test_print_helper_prefix_still_renders(wide_console):
     out = _capture(prompts._console, prompts.print_success, "done")
-    assert "OK" in out and "done" in out
-    assert "[mb.success]" not in out
+    assert "✓" in out and "done" in out
+    assert "[kiwi.success]" not in out
