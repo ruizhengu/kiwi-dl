@@ -46,7 +46,6 @@ def corrupt_env(tmp_path, monkeypatch):
     (user / "Config").mkdir(parents=True)
     (user / "Config" / "config.json").write_bytes(MALFORMED)
     monkeypatch.setenv("KIWI_DL_HOME", str(user))
-    monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "Logs"))
     return user / "Config" / "config.json"
 
@@ -101,7 +100,6 @@ def test_the_refusal_names_the_problem_without_leaking_file_contents(tmp_path, m
         b'{"smart_proxy_url": "sentinel-not-a-real-secret",,, BROKEN'
     )
     monkeypatch.setenv("KIWI_DL_HOME", str(user))
-    monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "Logs"))
     result = CliRunner().invoke(cli, ["info", "https://mega.nz/file/ABCD1234#KEYMATERIAL"])
     assert result.exit_code != 0
@@ -115,7 +113,6 @@ def test_a_valid_config_is_unaffected(tmp_path, monkeypatch):
     (user / "Config").mkdir(parents=True)
     (user / "Config" / "config.json").write_text(json.dumps({"max_workers": 4}), encoding="utf-8")
     monkeypatch.setenv("KIWI_DL_HOME", str(user))
-    monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "Logs"))
     result = CliRunner().invoke(cli, ["config", "get", "max_workers"])
     assert result.exit_code == 0
