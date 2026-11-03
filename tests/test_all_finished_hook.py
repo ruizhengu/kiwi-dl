@@ -16,12 +16,12 @@ from types import SimpleNamespace
 import pytest
 from click.testing import CliRunner
 
-import megabasterd_cli.utils.hooks as hooks_module
-from megabasterd_cli.cli import cli
-from megabasterd_cli.config import Config, ConfigStore
-from megabasterd_cli.core.downloader import DownloadResult, MegaDownloader
-from megabasterd_cli.core.errors import TransferError
-from megabasterd_cli.utils.hooks import run_all_finished_command
+import kiwi_dl.utils.hooks as hooks_module
+from kiwi_dl.cli import cli
+from kiwi_dl.config import Config, ConfigStore
+from kiwi_dl.core.downloader import DownloadResult, MegaDownloader
+from kiwi_dl.core.errors import TransferError
+from kiwi_dl.utils.hooks import run_all_finished_command
 
 FILE_URL = "https://mega.nz/file/abc123#xyz"
 FILE_URL_2 = "https://mega.nz/file/def456#uvw"
@@ -67,8 +67,8 @@ def _configure(tmp_path: Path, **values) -> None:
 
 @pytest.fixture()
 def download_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "logs"))
     _configure(tmp_path, all_finished_command=HOOK)
     return tmp_path
 
@@ -207,7 +207,7 @@ def test_outcome_is_appended_as_three_argv_items(spawns):
 
 
 def test_hook_arguments_are_not_logged(spawns, caplog):
-    with caplog.at_level("INFO", logger="megabasterd_cli.utils.hooks"):
+    with caplog.at_level("INFO", logger="kiwi_dl.utils.hooks"):
         run_all_finished_command("tool --token SUPERSECRET", kind="download", succeeded=1, failed=0)
     joined = " ".join(record.getMessage() for record in caplog.records)
     assert "SUPERSECRET" not in joined

@@ -12,8 +12,8 @@ import json
 import pytest
 from click.testing import CliRunner
 
-from megabasterd_cli.cli import cli
-from megabasterd_cli.config import ConfigCorruptionError, ConfigLockError, ConfigStore
+from kiwi_dl.cli import cli
+from kiwi_dl.config import ConfigCorruptionError, ConfigLockError, ConfigStore
 
 MALFORMED = b'{"max_workers": 8,,,\n'
 # A secret-looking value inside the corrupt file must never reach output.
@@ -119,7 +119,7 @@ def corrupt_env(tmp_path, monkeypatch):
     user = tmp_path / "User"
     (user / "Config").mkdir(parents=True)
     (user / "Config" / "config.json").write_bytes(MALFORMED)
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(user))
+    monkeypatch.setenv("KIWI_DL_HOME", str(user))
     monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     return user / "Config" / "config.json"
 
@@ -165,7 +165,7 @@ def test_cli_no_secret_from_corrupt_file_in_output(tmp_path, monkeypatch):
     user = tmp_path / "User"
     (user / "Config").mkdir(parents=True)
     (user / "Config" / "config.json").write_bytes(SECRET_IN_FILE)
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(user))
+    monkeypatch.setenv("KIWI_DL_HOME", str(user))
     monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     result = _runner().invoke(cli, ["config", "recover"])
     assert "s3cr3t" not in (result.output + (result.stderr or ""))
@@ -177,7 +177,7 @@ def test_cli_no_secret_from_corrupt_file_in_output(tmp_path, monkeypatch):
 
 
 def _lock_stuck(monkeypatch):
-    from megabasterd_cli.utils import filelock
+    from kiwi_dl.utils import filelock
 
     def _boom(self, timeout=None):
         raise filelock.FileLockError("Could not lock the config file within 0s.")
@@ -191,7 +191,7 @@ def valid_env(tmp_path, monkeypatch):
     (user / "Config").mkdir(parents=True)
     path = user / "Config" / "config.json"
     path.write_text(json.dumps({"max_workers": 7}), encoding="utf-8")
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(user))
+    monkeypatch.setenv("KIWI_DL_HOME", str(user))
     monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     return path
 

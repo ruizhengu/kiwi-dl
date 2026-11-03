@@ -26,9 +26,9 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.utils import secure_log
-from megabasterd_cli.utils.logger import OwnerOnlyRotatingFileHandler, setup_logging
-from megabasterd_cli.utils.secure_log import InsecureLogFileError
+from kiwi_dl.utils import secure_log
+from kiwi_dl.utils.logger import OwnerOnlyRotatingFileHandler, setup_logging
+from kiwi_dl.utils.secure_log import InsecureLogFileError
 from tests.helpers import OWNER_ONLY, posix_only, windows_only
 from tests.helpers import mode as _mode
 
@@ -48,7 +48,7 @@ def logging_teardown():
 @pytest.fixture(autouse=True)
 def reset_warn_once():
     """ "At most one warning" is per-process, so each test needs a clean slate."""
-    from megabasterd_cli.utils import logger as logger_module
+    from kiwi_dl.utils import logger as logger_module
 
     logger_module._file_logging_warned = False
     secure_log._verified.clear()
@@ -499,7 +499,7 @@ def test_only_one_sanitized_warning_reaches_stderr(tmp_path, monkeypatch, capsys
 
 def test_the_shared_helper_is_the_only_secure_open_implementation():
     """One helper, used by both callers - not two partially-equivalent copies."""
-    from megabasterd_cli.utils import logger
+    from kiwi_dl.utils import logger
 
     assert not hasattr(logger, "_owner_only"), "logger keeps a private second implementation"
     assert hasattr(secure_log, "open_secure")

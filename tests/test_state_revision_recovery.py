@@ -24,10 +24,10 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.core.chunks import iter_chunks
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import NonRetryableTransferError, TransferError
-from megabasterd_cli.core.state import (
+from kiwi_dl.core.chunks import iter_chunks
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import NonRetryableTransferError, TransferError
+from kiwi_dl.core.state import (
     STATE_FORMAT_VERSION,
     TransferState,
     _disk_guard,
@@ -79,7 +79,7 @@ def test_quarantine_removes_the_original_after_preserving_it(tmp_path: Path):
 
 def test_quarantine_keeps_the_original_when_preservation_fails(tmp_path: Path, monkeypatch):
     """Losing the evidence is worse than leaving the file; `_disk_guard` copes."""
-    import megabasterd_cli.utils.corruption as corruption
+    import kiwi_dl.utils.corruption as corruption
 
     monkeypatch.setattr(corruption, "preserve_corrupt_file", lambda path, data: None)
     destination = tmp_path / "file.bin"

@@ -1,4 +1,4 @@
-"""`mb proxy` - manage the Smart Proxy pool."""
+"""`kiwi-dl proxy` - manage the Smart Proxy pool."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from ..utils.redaction import REDACTED, redact_text
 _console = make_console()
 
 # Matches the other persisted stores (config, state): long enough for a
-# concurrent `mb proxy add` to finish, short enough to fail with a clear error.
+# concurrent `kiwi-dl proxy add` to finish, short enough to fail with a clear error.
 _POOL_LOCK_TIMEOUT_SECONDS = 10.0
 
 
@@ -178,7 +178,7 @@ def _url_secrets(url: str) -> list[str]:
     Short values are skipped: substituting a 4-character string everywhere
     would mangle ordinary words in the message for no real protection.
 
-    The scheme is synthesised when absent: `mb proxy add` and `mb proxy import`
+    The scheme is synthesised when absent: `kiwi-dl proxy add` and `kiwi-dl proxy import`
     store the string exactly as typed, and `urlsplit` reads a schemeless
     `alice:hunter2@host:8080` as `scheme='alice'` - so the password ended up in
     neither `parsed.password` nor `redact_text`'s `scheme://` pattern, and was
@@ -255,7 +255,7 @@ def _probe(url: str, timeout: float) -> tuple[bool, str]:
 def proxy_test(ctx: click.Context) -> None:
     """Probe every pooled proxy concurrently and report which ones answer.
 
-    Exits non-zero when nothing is reachable, so `mb proxy test && mb download
+    Exits non-zero when nothing is reachable, so `kiwi-dl proxy test && kiwi-dl download
     ...` runs the transfer only when the pool can actually carry it.
     """
     from concurrent.futures import ThreadPoolExecutor, wait

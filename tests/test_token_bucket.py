@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 import time
 
-from megabasterd_cli.utils.speed import NoOpLimiter, TokenBucket, make_limiter
+from kiwi_dl.utils.speed import NoOpLimiter, TokenBucket, make_limiter
 
 
 class FakeClock:

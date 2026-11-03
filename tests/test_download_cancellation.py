@@ -16,9 +16,9 @@ import threading
 
 import pytest
 
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import TransferCancelled
-from megabasterd_cli.core.state import load_state
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import TransferCancelled
+from kiwi_dl.core.state import load_state
 
 FILE_SIZE = 1024 * 1024  # several chunks
 
@@ -186,7 +186,7 @@ def test_incomplete_coverage_without_cancellation_is_also_a_failure(tmp_path, mo
 
 def test_cancellation_is_distinguishable_from_a_transfer_error():
     """Callers (machine output, exit codes) must be able to tell them apart."""
-    from megabasterd_cli.core.errors import MegaError, TransferError
+    from kiwi_dl.core.errors import MegaError, TransferError
 
     assert issubclass(TransferCancelled, TransferError)
     assert issubclass(TransferCancelled, MegaError)
@@ -194,6 +194,6 @@ def test_cancellation_is_distinguishable_from_a_transfer_error():
 
 
 def test_error_code_for_cancellation_is_distinct():
-    from megabasterd_cli.ui.machine_output import error_code_for
+    from kiwi_dl.ui.machine_output import error_code_for
 
     assert error_code_for(TransferCancelled(message="stopped")) == "cancelled"

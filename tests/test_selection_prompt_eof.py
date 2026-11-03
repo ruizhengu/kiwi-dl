@@ -28,8 +28,8 @@ from pathlib import Path
 import click
 import pytest
 
-from megabasterd_cli.commands.download_support import _interactive_file_picker
-from megabasterd_cli.utils.selection import SelectionCancelled
+from kiwi_dl.commands.download_support import _interactive_file_picker
+from kiwi_dl.utils.selection import SelectionCancelled
 
 
 class _Node:

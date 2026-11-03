@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.core import downloader as downloader_module
-from megabasterd_cli.core.errors import NonRetryableTransferError, TransferError
-from megabasterd_cli.core.folder_downloader import FolderNode, MegaFolderDownloader
+from kiwi_dl.core import downloader as downloader_module
+from kiwi_dl.core.errors import NonRetryableTransferError, TransferError
+from kiwi_dl.core.folder_downloader import FolderNode, MegaFolderDownloader
 
 
 def _folder(handle: str, parent: str, name: str) -> FolderNode:

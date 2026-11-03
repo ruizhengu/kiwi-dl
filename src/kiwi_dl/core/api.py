@@ -185,7 +185,7 @@ def default_user_agent() -> str:
     """Default User-Agent derived from the package version (no drift)."""
     from .. import __version__
 
-    return f"MegaBasterd-CLI/{__version__}"
+    return f"kiwi-dl/{__version__}"
 
 
 # Backward-compatible module constant (kept for imports; now version-accurate).

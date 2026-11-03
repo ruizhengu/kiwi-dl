@@ -19,8 +19,8 @@ import threading
 
 import pytest
 
-import megabasterd_cli.ui.progress as progress_module
-from megabasterd_cli.ui.progress import MultiFileProgressView, ProgressFileState
+import kiwi_dl.ui.progress as progress_module
+from kiwi_dl.ui.progress import MultiFileProgressView, ProgressFileState
 
 
 class _ProbeLive:

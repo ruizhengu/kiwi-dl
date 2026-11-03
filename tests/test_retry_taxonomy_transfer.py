@@ -14,15 +14,15 @@ from __future__ import annotations
 import pytest
 import requests
 
-from megabasterd_cli.core.downloader import CdnUrlExpired, _is_transient_chunk_failure
-from megabasterd_cli.core.errors import (
+from kiwi_dl.core.downloader import CdnUrlExpired, _is_transient_chunk_failure
+from kiwi_dl.core.errors import (
     IntegrityError,
     NonRetryableTransferError,
     RetryableTransferError,
     TransferCancelled,
     TransferError,
 )
-from megabasterd_cli.proxy.selector import ProxyRequiredError
+from kiwi_dl.proxy.selector import ProxyRequiredError
 
 
 @pytest.mark.parametrize(
@@ -63,9 +63,9 @@ def test_the_non_retryable_marker_is_a_transfer_error():
 
 def test_a_policy_refusal_reaches_the_caller_after_one_attempt(monkeypatch):
     """End to end through the real decorator: one call, not eight."""
-    from megabasterd_cli.core.chunks import Chunk
-    from megabasterd_cli.core.downloader import MegaDownloader
-    from megabasterd_cli.core.state import TransferState
+    from kiwi_dl.core.chunks import Chunk
+    from kiwi_dl.core.downloader import MegaDownloader
+    from kiwi_dl.core.state import TransferState
 
     downloader = MegaDownloader(api=None, verify_integrity=False, max_workers=1)
     downloader._cdn_url = "https://cdn.invalid/f"

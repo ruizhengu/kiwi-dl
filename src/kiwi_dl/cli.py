@@ -1,4 +1,4 @@
-"""MegaBasterd CLI entry point."""
+"""Entry points: `kiwi-dl` (download, info, proxy, config) and `mg-dl` (download)."""
 
 from __future__ import annotations
 
@@ -58,16 +58,7 @@ def _redacted_argv(argv: list[str]) -> list[str]:
 def _startup_args_for_log() -> list[str]:
     """Return process args only when this process looks like the CLI itself."""
     argv0 = str(sys.argv[0]).replace("\\", "/").rsplit("/", 1)[-1].lower()
-    cli_names = {
-        "mb",
-        "mb.exe",
-        "mbcli",
-        "mbcli.exe",
-        "megabasterd-cli",
-        "megabasterd-cli.exe",
-        "run.ps1",
-        "__main__.py",
-    }
+    cli_names = {"kiwi-dl", "kiwi-dl.exe", "mg-dl", "mg-dl.exe", "__main__.py"}
     if argv0 in cli_names:
         return _redacted_argv(sys.argv[1:])
     return []
@@ -118,31 +109,56 @@ def _config_summary_for_log(store: ConfigStore) -> dict[str, object]:
 _CORRUPT_CONFIG_ALLOWLIST = frozenset({"config"})
 
 
+_CONTEXT = {"help_option_names": ["-h", "--help"]}
+
+
+def _global_options(fn):
+    """`-v`, `-q`, `--log-file` and `--version`: the same on both entry points."""
+    for option in reversed(
+        [
+            click.option(
+                "-v",
+                "--verbose",
+                count=True,
+                help="Increase verbosity (-v for INFO, -vv for DEBUG).",
+            ),
+            click.option(
+                "-q",
+                "--quiet",
+                is_flag=True,
+                help="Suppress console output (errors still shown).",
+            ),
+            click.option(
+                "--log-file/--no-log-file",
+                default=None,
+                help="Write a debug log file in the user log directory.",
+            ),
+            click.version_option(version=__version__, prog_name="kiwi-dl"),
+        ]
+    ):
+        fn = option(fn)
+    return fn
+
+
 @click.group(
-    context_settings={"help_option_names": ["-h", "--help"]},
-    help="MegaBasterd CLI - command-line MEGA.nz transfers.",
+    context_settings=_CONTEXT,
+    help="kiwi-dl - download public MEGA links. Not affiliated with Mega Limited.",
 )
-@click.option(
-    "-v",
-    "--verbose",
-    count=True,
-    help="Increase verbosity (-v for INFO, -vv for DEBUG).",
-)
-@click.option(
-    "-q",
-    "--quiet",
-    is_flag=True,
-    help="Suppress console output (errors still shown).",
-)
-@click.option(
-    "--log-file/--no-log-file",
-    default=None,
-    help="Write a debug log file in the user log directory.",
-)
-@click.version_option(version=__version__, prog_name="megabasterd-cli")
+@_global_options
 @click.pass_context
 def cli(ctx: click.Context, verbose: int, quiet: bool, log_file: bool | None) -> None:
     """Top-level CLI group."""
+    _bootstrap(ctx, verbose, quiet, log_file, ctx.invoked_subcommand)
+
+
+def _bootstrap(
+    ctx: click.Context,
+    verbose: int,
+    quiet: bool,
+    log_file: bool | None,
+    command: str | None,
+) -> None:
+    """Load the config, refuse a corrupt one, and set up logging."""
     ctx.ensure_object(dict)
     store = ConfigStore()
     ctx.obj["config_store"] = store
@@ -156,13 +172,13 @@ def cli(ctx: click.Context, verbose: int, quiet: bool, log_file: bool | None) ->
     # and the next command would open a direct socket. Everything except the
     # recovery/inspection surface therefore stops here, before any request,
     # destination reservation, or stored-state mutation.
-    if store.is_corrupt and ctx.invoked_subcommand not in _CORRUPT_CONFIG_ALLOWLIST:
+    if store.is_corrupt and command not in _CORRUPT_CONFIG_ALLOWLIST:
         click.echo(store.corruption_reason, err=True)
         click.echo(
-            f"Refusing to run `{ctx.invoked_subcommand}` with an unusable configuration: "
+            f"Refusing to run `{command}` with an unusable configuration: "
             "your saved settings (proxy policy, integrity, paths, limits) cannot be "
-            "applied. Inspect it with `mb config show`, or start over with "
-            "`mb config recover --reset`.",
+            "applied. Inspect it with `kiwi-dl config show`, or start over with "
+            "`kiwi-dl config recover --reset`.",
             err=True,
         )
         ctx.exit(1)
@@ -176,14 +192,14 @@ def cli(ctx: click.Context, verbose: int, quiet: bool, log_file: bool | None) ->
     else:
         level = store.config.log_level
 
-    env_log_file = os.environ.get("MEGABASTERD_CLI_LOG_FILE")
+    env_log_file = os.environ.get("KIWI_DL_LOG_FILE")
     if log_file is False:
         log_path = None
     elif env_log_file:
         log_path = Path(env_log_file)
     else:
         use_log_file = log_file if log_file is not None else store.config.log_to_file
-        log_path = (log_dir() / "megabasterd-cli.log") if use_log_file else None
+        log_path = (log_dir() / "kiwi-dl.log") if use_log_file else None
 
     startup_args = _startup_args_for_log()
     command_name = _command_name_for_log(startup_args)
@@ -230,6 +246,23 @@ cli.add_command(proxy_cmd)
 cli.add_command(config_cmd, name="config")
 
 
+@click.command(
+    "mg-dl",
+    context_settings=_CONTEXT,
+    help="Download public MEGA links: `mg-dl 'https://mega.nz/file/ID#KEY' [-o DIR]`. "
+    "The same as `kiwi-dl download`. Not affiliated with Mega Limited.",
+)
+@_global_options
+@click.pass_context
+def mg_dl(ctx: click.Context, verbose: int, quiet: bool, log_file: bool | None, **options) -> None:
+    _bootstrap(ctx, verbose, quiet, log_file, "download")
+    ctx.invoke(download, **options)
+
+
+# Every `download` option and argument, so `mg-dl --help` lists them as its own.
+mg_dl.params.extend(download.params)
+
+
 # Set by the SIGINT handler below; read by `main` to tell Ctrl-C apart from
 # any other exit status 1.
 _interrupted = threading.Event()
@@ -249,7 +282,16 @@ def _stop_transfers_then_interrupt(signum, frame) -> None:
 
 
 def main() -> int:
-    """Console script entry point."""
+    """`kiwi-dl` console script."""
+    return _run(cli, "kiwi-dl")
+
+
+def mg_dl_main() -> int:
+    """`mg-dl` console script."""
+    return _run(mg_dl, "mg-dl")
+
+
+def _run(command: click.Command, prog_name: str) -> int:
     # Make stdout/stderr Unicode-safe on legacy Windows terminals so messages
     # that contain characters outside cp1252 (e.g. arrows, em-dashes, non-Latin
     # filenames returned by MEGA) don't crash the process.
@@ -265,7 +307,7 @@ def main() -> int:
         signal.signal(signal.SIGINT, _stop_transfers_then_interrupt) if on_main_thread else None
     )
     try:
-        cli(prog_name="mb")
+        command(prog_name=prog_name)
         return 0
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user.[/yellow]")

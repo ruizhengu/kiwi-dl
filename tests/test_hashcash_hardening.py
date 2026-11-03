@@ -16,8 +16,8 @@ import time
 
 import pytest
 
-import megabasterd_cli.core.hashcash as hashcash
-from megabasterd_cli.core.hashcash import (
+import kiwi_dl.core.hashcash as hashcash
+from kiwi_dl.core.hashcash import (
     MAX_EASINESS,
     TOKEN_BYTES,
     HashcashChallenge,
@@ -85,7 +85,7 @@ def test_valid_challenge_still_parses() -> None:
 
 def test_keyboard_interrupt_stops_workers(monkeypatch) -> None:
     """Ctrl-C in the poll loop must signal the workers, not leave them spinning."""
-    monkeypatch.setenv("MEGABASTERD_HASHCASH_NATIVE", "0")
+    monkeypatch.setenv("KIWI_DL_HASHCASH_NATIVE", "0")
 
     running = threading.Event()
 

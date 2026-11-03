@@ -19,8 +19,8 @@ import stat
 
 import pytest
 
-from megabasterd_cli.config import ConfigStore
-from megabasterd_cli.utils.corruption import content_digest, preserve_corrupt_file
+from kiwi_dl.config import ConfigStore
+from kiwi_dl.utils.corruption import content_digest, preserve_corrupt_file
 
 CORRUPT_A = b'{"episode": "A",,,'
 CORRUPT_B = b"[not even the same shape"
@@ -135,7 +135,7 @@ def _detect(args):
     directory, name = args
     from pathlib import Path
 
-    from megabasterd_cli.config import ConfigStore as Store
+    from kiwi_dl.config import ConfigStore as Store
 
     store = Store(path=Path(directory) / name, lock_timeout=10.0)
     store.load()

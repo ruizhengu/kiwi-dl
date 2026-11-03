@@ -1,4 +1,4 @@
-"""Shared Rich theme for MegaBasterd CLI output."""
+"""Shared Rich theme for kiwi-dl output."""
 
 from __future__ import annotations
 

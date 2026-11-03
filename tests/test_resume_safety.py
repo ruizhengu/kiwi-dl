@@ -7,9 +7,9 @@ combined with stale chunk/MAC data.
 
 from pathlib import Path
 
-from megabasterd_cli.core.chunks import iter_chunks
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.state import TransferState
+from kiwi_dl.core.chunks import iter_chunks
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.state import TransferState
 
 
 def _state(dest: Path, **over) -> TransferState:

@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-import megabasterd_cli.core.state as state_module
-from megabasterd_cli.core.state import (
+import kiwi_dl.core.state as state_module
+from kiwi_dl.core.state import (
     StateCorruptionError,
     TransferState,
     clear_state,
@@ -196,7 +196,7 @@ def test_download_data_is_fsynced_before_the_state_file_is_replaced(tmp_path, mo
 
 
 def test_clear_state_does_not_unlink_while_a_writer_holds_the_lock(tmp_path, monkeypatch):
-    from megabasterd_cli.utils.filelock import FileLock
+    from kiwi_dl.utils.filelock import FileLock
 
     monkeypatch.setattr(state_module, "STATE_LOCK_TIMEOUT", 0.2)
     destination = tmp_path / "out.bin"

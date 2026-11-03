@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import pytest
 
-from megabasterd_cli.core.chunks import MAX_CHUNKS, MAX_FILE_SIZE, Chunk, chunk_count, iter_chunks
-from megabasterd_cli.core.downloader import (
+from kiwi_dl.core.chunks import MAX_CHUNKS, MAX_FILE_SIZE, Chunk, chunk_count, iter_chunks
+from kiwi_dl.core.downloader import (
     DeclaredSizeError,
     InsufficientDiskSpaceError,
     MegaDownloader,
 )
-from megabasterd_cli.core.errors import NonRetryableTransferError
+from kiwi_dl.core.errors import NonRetryableTransferError
 
 # ---------------------------------------------------------------------------
 # B7 - decompression bombs in the link payload
@@ -76,13 +76,13 @@ class _OverlongChunkResponse:
 
 
 def test_chunk_body_cannot_exceed_the_requested_range(monkeypatch):
-    from megabasterd_cli.core.state import TransferState
+    from kiwi_dl.core.state import TransferState
 
     offset, size = 1024, 1024
     response = _OverlongChunkResponse(offset, size)
     downloader = MegaDownloader(api=None, verify_integrity=False, max_workers=1)
     downloader._cdn_url = "https://cdn.invalid/file"
-    monkeypatch.setattr("megabasterd_cli.core.downloader.requests.get", lambda *a, **kw: response)
+    monkeypatch.setattr("kiwi_dl.core.downloader.requests.get", lambda *a, **kw: response)
     state = TransferState(
         transfer_type="download",
         source="https://mega.nz/file/ID#key",
@@ -120,7 +120,7 @@ def test_absurd_declared_sizes_are_refused_before_any_allocation(monkeypatch, tm
         exploded = True
         return iter(())
 
-    monkeypatch.setattr("megabasterd_cli.core.downloader.iter_chunks", _tripwire)
+    monkeypatch.setattr("kiwi_dl.core.downloader.iter_chunks", _tripwire)
     downloader = MegaDownloader(api=None, verify_integrity=False, max_workers=1)
     with pytest.raises(DeclaredSizeError):
         downloader._run_download(
@@ -146,7 +146,7 @@ def test_chunk_count_is_computed_without_building_the_chunks():
 
 
 def test_preallocation_checks_free_disk_space(monkeypatch, tmp_path):
-    monkeypatch.setattr("megabasterd_cli.core.downloader.available_disk_space", lambda p: 1024)
+    monkeypatch.setattr("kiwi_dl.core.downloader.available_disk_space", lambda p: 1024)
     downloader = MegaDownloader(api=None, verify_integrity=False, max_workers=1)
     destination = tmp_path / "big.bin"
     with pytest.raises(InsufficientDiskSpaceError, match="Not enough free space"):

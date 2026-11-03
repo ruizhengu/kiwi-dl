@@ -12,9 +12,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from megabasterd_cli.cli import cli
-from megabasterd_cli.core.downloader import DownloadResult, MegaDownloader
-from megabasterd_cli.core.errors import TransferError
+from kiwi_dl.cli import cli
+from kiwi_dl.core.downloader import DownloadResult, MegaDownloader
+from kiwi_dl.core.errors import TransferError
 
 FILE_URL = "https://mega.nz/file/abc123#supersecretkey"
 
@@ -39,8 +39,8 @@ def _runner() -> CliRunner:
 
 @pytest.fixture()
 def cli_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "logs"))
     return tmp_path
 
 

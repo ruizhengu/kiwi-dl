@@ -19,7 +19,7 @@ import os
 
 import pytest
 
-from megabasterd_cli.core.state import (
+from kiwi_dl.core.state import (
     StateDurabilityError,
     TransferState,
     load_state,

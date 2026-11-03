@@ -15,7 +15,7 @@ import logging
 
 import pytest
 
-from megabasterd_cli.utils.logger import RedactingFormatter, redact_log_text
+from kiwi_dl.utils.logger import RedactingFormatter, redact_log_text
 
 # Every value here is invented; none is a real credential.
 LEAKS = {

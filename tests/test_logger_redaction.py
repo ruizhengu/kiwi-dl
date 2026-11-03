@@ -2,7 +2,7 @@
 
 import logging
 
-from megabasterd_cli.utils.logger import redact_log_text, setup_logging
+from kiwi_dl.utils.logger import redact_log_text, setup_logging
 
 
 def test_email_redacted_in_text() -> None:
@@ -24,7 +24,7 @@ def test_non_sensitive_text_preserved() -> None:
 def test_child_logger_file_handler_redacts_email(tmp_path) -> None:
     log_path = tmp_path / "cli.log"
     setup_logging(level="DEBUG", log_file=log_path, quiet=True, run_id="r", command="account")
-    logging.getLogger("megabasterd_cli.accounts.manager").info("Refreshing account bob@example.net")
+    logging.getLogger("kiwi_dl.accounts.manager").info("Refreshing account bob@example.net")
     logging.shutdown()
     text = log_path.read_text(encoding="utf-8")
     assert "bob@example.net" not in text
@@ -37,7 +37,7 @@ def test_exception_traceback_redacts_email(tmp_path) -> None:
     try:
         raise ValueError("bad login for carol@example.com")
     except ValueError:
-        logging.getLogger("megabasterd_cli.core.client").exception("login error")
+        logging.getLogger("kiwi_dl.core.client").exception("login error")
     logging.shutdown()
     text = log_path.read_text(encoding="utf-8")
     assert "carol@example.com" not in text

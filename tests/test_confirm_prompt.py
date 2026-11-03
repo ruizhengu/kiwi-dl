@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from megabasterd_cli.ui import prompts
+from kiwi_dl.ui import prompts
 
 
 def _answers(monkeypatch, *lines):
@@ -103,7 +103,7 @@ def test_every_destructive_confirm_reports_a_decline():
     """
     import inspect
 
-    from megabasterd_cli.commands import proxy_cmd
+    from kiwi_dl.commands import proxy_cmd
 
     for module in (proxy_cmd,):
         source = inspect.getsource(module)

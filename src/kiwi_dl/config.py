@@ -14,8 +14,7 @@ from .utils.atomic import atomic_write_text
 from .utils.corruption import existing_backup_for, preserve_corrupt_file
 from .utils.filelock import FileLock, FileLockError
 
-APP_NAME = "megabasterd-cli"
-APP_AUTHOR = "MegaBasterdCLI"
+APP_NAME = "kiwi-dl"
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ class ConfigCorruptionError(Exception):
 
     A corrupt config is preserved byte-for-byte (never overwritten) and every
     mutation is blocked until the operator resolves it with
-    `mb config recover --reset` or by restoring a good copy.
+    `kiwi-dl config recover --reset` or by restoring a good copy.
     """
 
 
@@ -44,7 +43,7 @@ DEPRECATED_CONFIG_KEYS = {
     "and was removed.",
     "smart_proxy_autorefresh_minutes": "not implemented; the proxy pool is reloaded on every "
     "command run.",
-    "smart_proxy_timeout_seconds": "not implemented; use `mb proxy fetch --timeout` instead.",
+    "smart_proxy_timeout_seconds": "not implemented.",
     "smart_proxy_random": "not implemented; the pool always picks randomly, weighted by health.",
 }
 
@@ -100,7 +99,7 @@ class Config:
     log_to_file: bool = True
     log_max_bytes: int = 5_000_000
     log_backups: int = 5
-    user_agent: str = ""  # Empty = "MegaBasterd-CLI/<version>"
+    user_agent: str = ""  # Empty = "kiwi-dl/<version>"
 
     # Quota recovery: wait this many seconds when MEGA returns EOVERQUOTA/-17
     quota_wait_seconds: int = 3600
@@ -238,7 +237,7 @@ def data_dir() -> Path:
 
 
 def log_dir() -> Path:
-    env_log = os.environ.get("MEGABASTERD_LOG_DIR")
+    env_log = os.environ.get("KIWI_DL_LOG_DIR")
     if env_log:
         return Path(env_log).expanduser().resolve()
     return user_dir() / "Logs"
@@ -262,7 +261,7 @@ def project_root() -> Path:
 
 def user_dir() -> Path:
     """Directory for local user data owned by the source checkout."""
-    env_user = os.environ.get("MEGABASTERD_USER_DIR")
+    env_user = os.environ.get("KIWI_DL_HOME")
     if env_user:
         return Path(env_user).expanduser().resolve()
     return project_root() / "User"
@@ -371,7 +370,7 @@ class ConfigStore:
         self._corrupt_reason = redact_text(
             f"The config file is corrupt and was preserved untouched: {reason}. "
             f"A backup was saved next to {self.path.name}; run "
-            "`mb config recover --reset` to start from defaults, or restore a good copy."
+            "`kiwi-dl config recover --reset` to start from defaults, or restore a good copy."
         )
         if data is None:
             self._corrupt_backup = None
@@ -389,14 +388,14 @@ class ConfigStore:
             self._corrupt_reason = redact_text(
                 f"The config file is corrupt and was preserved untouched: {reason}. "
                 f"A backup was saved as {self._corrupt_backup.name}; run "
-                "`mb config recover --reset` to start from defaults, or restore a good copy."
+                "`kiwi-dl config recover --reset` to start from defaults, or restore a good copy."
             )
         else:
             # Never claim a backup that was not written.
             self._corrupt_reason = redact_text(
                 f"The config file is corrupt and was preserved untouched: {reason}. "
                 "A backup could NOT be written; fix the permissions or move the file "
-                "aside, then run `mb config recover --reset`."
+                "aside, then run `kiwi-dl config recover --reset`."
             )
         log.warning("%s", self._corrupt_reason)
 
@@ -427,7 +426,7 @@ class ConfigStore:
                 _warn_once(
                     key,
                     f"config: ignoring deprecated key {key} ({DEPRECATED_CONFIG_KEYS[key]}); "
-                    "run `mb config migrate` to remove it",
+                    "run `kiwi-dl config migrate` to remove it",
                 )
                 continue
             if hasattr(cfg, key):

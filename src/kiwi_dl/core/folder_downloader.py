@@ -313,7 +313,7 @@ class MegaFolderDownloader:
     def _decrypt_folder_nodes(raw_nodes: list[dict], folder_key: bytes) -> list[FolderNode]:
         """Decrypt the per-node attributes/keys using the folder share key.
 
-        Static because it never used `self`, and `mb info --json` needs it
+        Static because it never used `self`, and `kiwi-dl info --json` needs it
         without building a downloader (which would want a transport it has no
         use for). The existing `self._decrypt_folder_nodes(...)` call sites
         are unaffected.
@@ -367,7 +367,7 @@ class MegaFolderDownloader:
     ) -> list[tuple[FolderNode, Path]]:
         """Work out each file's destination WITHOUT touching the disk.
 
-        Split out of `_build_file_jobs` so a read-only caller - `mb info
+        Split out of `_build_file_jobs` so a read-only caller - `kiwi-dl info
         --json`, which must not create anything - can report the very paths a
         download would write, and `--include` patterns are matched against
         those same strings. Two implementations would drift, and the drift

@@ -14,9 +14,9 @@ import time
 
 import pytest
 
-from megabasterd_cli.core import api as api_module
-from megabasterd_cli.core import hashcash as hashcash_module
-from megabasterd_cli.core.api import MegaAPIClient
+from kiwi_dl.core import api as api_module
+from kiwi_dl.core import hashcash as hashcash_module
+from kiwi_dl.core.api import MegaAPIClient
 
 TOKEN_B64 = base64.urlsafe_b64encode(b"t" * 48).decode().rstrip("=")
 CHALLENGE = f"1:200:{TOKEN_B64}"

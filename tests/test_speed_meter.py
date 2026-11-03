@@ -16,7 +16,7 @@ from __future__ import annotations
 import threading
 import time
 
-from megabasterd_cli.utils.speed import RollingSpeedMeter
+from kiwi_dl.utils.speed import RollingSpeedMeter
 
 
 class TestRollingSpeedMeter:

@@ -18,11 +18,11 @@ import json
 import pytest
 from tenacity import wait_none
 
-from megabasterd_cli.core import downloader as dl_mod
-from megabasterd_cli.core.chunks import iter_chunks
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import IntegrityError
-from megabasterd_cli.core.state import (
+from kiwi_dl.core import downloader as dl_mod
+from kiwi_dl.core.chunks import iter_chunks
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import IntegrityError
+from kiwi_dl.core.state import (
     StateCorruptionError,
     TransferState,
     load_state,
@@ -30,8 +30,8 @@ from megabasterd_cli.core.state import (
     state_path_for,
     validate_state_dict,
 )
-from megabasterd_cli.proxy.quota_router import SmartProxyPolicy, proxy_fingerprint
-from megabasterd_cli.proxy.smart_proxy import SmartProxyPool
+from kiwi_dl.proxy.quota_router import SmartProxyPolicy, proxy_fingerprint
+from kiwi_dl.proxy.smart_proxy import SmartProxyPool
 from tests.fake_mega import FakeCdn
 
 KiB = 1024
@@ -46,7 +46,7 @@ def _quiet_retries(monkeypatch):
     monkeypatch.setattr(MegaDownloader._download_chunk.retry, "wait", wait_none())
     monkeypatch.setattr(dl_mod, "_local_route_fingerprint", lambda: "10.0.0.5")
     monkeypatch.setattr(
-        "megabasterd_cli.proxy.smart_proxy.random.choices", lambda pop, weights, k: [pop[0]]
+        "kiwi_dl.proxy.smart_proxy.random.choices", lambda pop, weights, k: [pop[0]]
     )
 
 

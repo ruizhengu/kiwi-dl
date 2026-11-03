@@ -2,7 +2,7 @@
 
 import os
 
-from megabasterd_cli.core.crypto import (
+from kiwi_dl.core.crypto import (
     a32_to_bytes,
     aes_cbc_decrypt,
     aes_cbc_encrypt,

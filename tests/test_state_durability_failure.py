@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.core.state import (
+from kiwi_dl.core.state import (
     StateDurabilityError,
     TransferState,
     load_state,
@@ -84,7 +84,7 @@ def test_a_failed_data_fsync_does_not_commit_the_state(tmp_path, monkeypatch):
 
 def test_the_durability_failure_is_typed_and_actionable(tmp_path, monkeypatch):
     """The caller has to be able to tell this apart from a lock timeout."""
-    from megabasterd_cli.core.errors import MegaError
+    from kiwi_dl.core.errors import MegaError
 
     destination = tmp_path / "movie.mkv"
     destination.write_bytes(b"\x00" * 4096)
@@ -170,7 +170,7 @@ def test_a_permission_error_through_every_retry_leaves_no_temp(tmp_path, monkeyp
     monkeypatch.setattr(
         os, "replace", lambda *a, **kw: (_ for _ in ()).throw(PermissionError("locked"))
     )
-    monkeypatch.setattr("megabasterd_cli.core.state.time.sleep", lambda s: None)
+    monkeypatch.setattr("kiwi_dl.core.state.time.sleep", lambda s: None)
 
     with pytest.raises(PermissionError):
         save_state(_state(destination, [1, 2], revision=2))

@@ -18,7 +18,7 @@ import pytest
 import requests.sessions
 from click.testing import CliRunner
 
-from megabasterd_cli.cli import cli
+from kiwi_dl.cli import cli
 
 MALFORMED = b'{"force_smart_proxy": true, "smart_proxy_enabled": true,,, BROKEN'
 
@@ -45,9 +45,9 @@ def corrupt_env(tmp_path, monkeypatch):
     user = tmp_path / "User"
     (user / "Config").mkdir(parents=True)
     (user / "Config" / "config.json").write_bytes(MALFORMED)
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(user))
+    monkeypatch.setenv("KIWI_DL_HOME", str(user))
     monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "Logs"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "Logs"))
     return user / "Config" / "config.json"
 
 
@@ -100,9 +100,9 @@ def test_the_refusal_names_the_problem_without_leaking_file_contents(tmp_path, m
     (user / "Config" / "config.json").write_bytes(
         b'{"smart_proxy_url": "sentinel-not-a-real-secret",,, BROKEN'
     )
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(user))
+    monkeypatch.setenv("KIWI_DL_HOME", str(user))
     monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "Logs"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "Logs"))
     result = CliRunner().invoke(cli, ["info", "https://mega.nz/file/ABCD1234#KEYMATERIAL"])
     assert result.exit_code != 0
     assert "sentinel-not-a-real-secret" not in result.output
@@ -114,9 +114,9 @@ def test_a_valid_config_is_unaffected(tmp_path, monkeypatch):
     user = tmp_path / "User"
     (user / "Config").mkdir(parents=True)
     (user / "Config" / "config.json").write_text(json.dumps({"max_workers": 4}), encoding="utf-8")
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(user))
+    monkeypatch.setenv("KIWI_DL_HOME", str(user))
     monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "Logs"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "Logs"))
     result = CliRunner().invoke(cli, ["config", "get", "max_workers"])
     assert result.exit_code == 0
     assert "4" in result.output

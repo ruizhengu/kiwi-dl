@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.commands import download_support as ds
+from kiwi_dl.commands import download_support as ds
 
 
 @pytest.fixture()
@@ -81,7 +81,7 @@ def test_every_download_helper_accepts_the_hook_config():
 
 def test_the_command_passes_the_hook_to_every_helper_call():
     """A helper that supports the parameter is useless if a call site omits it."""
-    from megabasterd_cli.commands import download_cmd
+    from kiwi_dl.commands import download_cmd
 
     source = inspect.getsource(download_cmd)
     helper_calls = source.count("_download_file(") + source.count("_download_folder")

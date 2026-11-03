@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from megabasterd_cli.utils.redaction import REDACTED, redact_text, sanitize
+from kiwi_dl.utils.redaction import REDACTED, redact_text, sanitize
 
 REDACTED_CASES = [
     ("password: hunter2-fake", "hunter2-fake"),
@@ -210,7 +210,7 @@ def test_machine_json_records_are_sanitized_end_to_end(tmp_path, capsys):
     import io
     import json as _json
 
-    from megabasterd_cli.ui.machine_output import MachineOutput
+    from kiwi_dl.ui.machine_output import MachineOutput
 
     out = MachineOutput(enabled=True)
     out._stream = io.StringIO()
@@ -231,9 +231,9 @@ def test_cli_error_text_is_sanitized(tmp_path, monkeypatch):
     """A secret inside an exception message must not reach stderr verbatim."""
     from click.testing import CliRunner
 
-    from megabasterd_cli.cli import cli
+    from kiwi_dl.cli import cli
 
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "User"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "User"))
     monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(tmp_path))
     runner = CliRunner()  # streams mixed: assert over everything the user sees
     result = runner.invoke(cli, ["download", "https://mega.nz/file/ABCD1234#SUPERSECRETKEYVALUE"])

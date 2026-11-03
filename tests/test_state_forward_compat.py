@@ -22,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import TransferError
-from megabasterd_cli.core.state import (
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import TransferError
+from kiwi_dl.core.state import (
     STATE_FORMAT_VERSION,
     load_state,
     state_path_for,

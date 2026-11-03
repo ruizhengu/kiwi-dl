@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from megabasterd_cli.commands.proxy_cmd import proxy_cmd
+from kiwi_dl.commands.proxy_cmd import proxy_cmd
 
 REPO_SRC = str(Path(__file__).resolve().parents[1] / "src")
 SENTINEL = "http://sentinel-user:sentinel-password@example.invalid:8080"
@@ -39,12 +39,12 @@ SENTINEL = "http://sentinel-user:sentinel-password@example.invalid:8080"
 @pytest.fixture
 def pool_dir(tmp_path, monkeypatch):
     """Point the proxy store at an isolated directory."""
-    monkeypatch.setattr("megabasterd_cli.proxy.runtime.data_dir", lambda: tmp_path)
+    monkeypatch.setattr("kiwi_dl.proxy.runtime.data_dir", lambda: tmp_path)
     return tmp_path
 
 
 def _pool_file(pool_dir: Path) -> Path:
-    from megabasterd_cli.commands.proxy_cmd import _pool_path
+    from kiwi_dl.commands.proxy_cmd import _pool_path
 
     return _pool_path()
 
@@ -57,7 +57,7 @@ def _urls(pool_dir: Path) -> set[str]:
 
 
 def _run(args, *, catch=False):
-    from megabasterd_cli.config import Config
+    from kiwi_dl.config import Config
 
     return CliRunner().invoke(proxy_cmd, args, obj={"config": Config()}, catch_exceptions=catch)
 
@@ -69,8 +69,8 @@ def _child(data_dir: Path, body: str) -> subprocess.CompletedProcess:
         import sys
         sys.path.insert(0, {REPO_SRC!r})
         from pathlib import Path
-        import megabasterd_cli.proxy.runtime as rt
-        import megabasterd_cli.commands.proxy_cmd as pc
+        import kiwi_dl.proxy.runtime as rt
+        import kiwi_dl.commands.proxy_cmd as pc
         rt.data_dir = lambda: Path({str(data_dir)!r})
         {textwrap.indent(textwrap.dedent(body), "        ").lstrip()}
         """
@@ -128,8 +128,8 @@ def test_two_processes_adding_different_proxies_keep_both(pool_dir, tmp_path):
                         import sys
                         sys.path.insert(0, {REPO_SRC!r})
                         from pathlib import Path
-                        import megabasterd_cli.proxy.runtime as rt
-                        import megabasterd_cli.commands.proxy_cmd as pc
+                        import kiwi_dl.proxy.runtime as rt
+                        import kiwi_dl.commands.proxy_cmd as pc
                         rt.data_dir = lambda: Path({str(pool_dir)!r})
                         {textwrap.indent(
                             textwrap.dedent(

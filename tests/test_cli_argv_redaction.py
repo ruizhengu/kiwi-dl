@@ -1,6 +1,6 @@
 """Startup-args redaction in CLI logs: passwords and link keys never reach the log."""
 
-from megabasterd_cli.cli import _redacted_argv
+from kiwi_dl.cli import _redacted_argv
 
 
 def test_link_password_value_is_redacted():

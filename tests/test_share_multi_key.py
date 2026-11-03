@@ -17,16 +17,16 @@ import os
 
 import pytest
 
-from megabasterd_cli.core import download_source as ds
-from megabasterd_cli.core.crypto import (
+from kiwi_dl.core import download_source as ds
+from kiwi_dl.core.crypto import (
     aes_key_wrap_decrypt,
     b64_url_decode,
     b64_url_encode,
     unpack_file_key,
 )
-from megabasterd_cli.core.folder_downloader import MegaFolderDownloader
-from megabasterd_cli.core.links import parse_link
-from megabasterd_cli.core.share_keys import (
+from kiwi_dl.core.folder_downloader import MegaFolderDownloader
+from kiwi_dl.core.links import parse_link
+from kiwi_dl.core.share_keys import (
     share_root_handles,
     unwrap_share_node_key,
     wrapped_key_candidates,
@@ -107,7 +107,7 @@ def test_the_folder_downloader_lists_every_node(owner_item):
 
 @pytest.mark.parametrize("owner_item", SHAPES, ids=SHAPE_IDS)
 def test_info_json_lists_the_files(owner_item):
-    from megabasterd_cli.commands.info_cmd import _folder_files
+    from kiwi_dl.commands.info_cmd import _folder_files
 
     listing = share_listing(FOLDER_KEY, ENTRIES, owner_item=owner_item)
     files = _folder_files(listing, b64_url_encode(FOLDER_KEY), "root0001")
@@ -150,12 +150,12 @@ def test_info_on_a_file_in_folder_link_names_the_file(owner_item, tmp_path, monk
 
     from click.testing import CliRunner
 
-    from megabasterd_cli.cli import cli
-    from megabasterd_cli.core.api import MegaAPIClient
+    from kiwi_dl.cli import cli
+    from kiwi_dl.core.api import MegaAPIClient
 
     listing = share_listing(FOLDER_KEY, ENTRIES, owner_item=owner_item)
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setattr(
         MegaAPIClient, "get_public_folder_listing", lambda self, pid: {"f": listing}
     )

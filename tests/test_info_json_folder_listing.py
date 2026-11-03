@@ -28,8 +28,8 @@ import json
 import pytest
 from click.testing import CliRunner
 
-from megabasterd_cli.cli import cli
-from megabasterd_cli.core.crypto import (
+from kiwi_dl.cli import cli
+from kiwi_dl.core.crypto import (
     a32_to_bytes,
     aes_key_wrap_encrypt,
     b64_url_encode,
@@ -82,7 +82,7 @@ def listing(monkeypatch):
         calls.append(public_id)
         return {"f": list(TREE)}
 
-    monkeypatch.setattr("megabasterd_cli.core.api.MegaAPIClient.get_public_folder_listing", fake)
+    monkeypatch.setattr("kiwi_dl.core.api.MegaAPIClient.get_public_folder_listing", fake)
     return calls
 
 
@@ -161,8 +161,8 @@ def test_a_reported_path_is_accepted_by_the_include_filter(listing):
     """
     from pathlib import Path
 
-    from megabasterd_cli.core.folder_downloader import MegaFolderDownloader
-    from megabasterd_cli.utils.selection import build_folder_file_filter
+    from kiwi_dl.core.folder_downloader import MegaFolderDownloader
+    from kiwi_dl.utils.selection import build_folder_file_filter
 
     files = _payload(_run(URL, "--json"))["files"]
     chosen = next(f for f in files if f["path"].endswith("09v2.mkv"))
@@ -203,7 +203,7 @@ def test_no_account_or_mfa_is_involved(listing):
     """`info` is the no-credentials command and must stay that way."""
     import inspect
 
-    from megabasterd_cli.commands import info_cmd as module
+    from kiwi_dl.commands import info_cmd as module
 
     source = inspect.getsource(module)
     for forbidden in ("login_client", "AccountManager", "ask_mfa_code", "restore_session"):

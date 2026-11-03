@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.core.chunks import iter_chunks
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import IntegrityError
-from megabasterd_cli.core.state import TransferState, save_state, state_path_for
+from kiwi_dl.core.chunks import iter_chunks
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import IntegrityError
+from kiwi_dl.core.state import TransferState, save_state, state_path_for
 
 
 def test_integrity_fails_closed_when_the_file_cannot_be_read(tmp_path: Path):

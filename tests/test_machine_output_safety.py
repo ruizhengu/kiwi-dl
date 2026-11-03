@@ -8,9 +8,9 @@ import threading
 
 import pytest
 
-from megabasterd_cli.core.errors import QuotaError, TransferError
-from megabasterd_cli.ui.machine_output import MachineOutput, error_code_for
-from megabasterd_cli.utils.redaction import redact_text, sanitize
+from kiwi_dl.core.errors import QuotaError, TransferError
+from kiwi_dl.ui.machine_output import MachineOutput, error_code_for
+from kiwi_dl.utils.redaction import redact_text, sanitize
 
 
 def _capture(monkeypatch) -> tuple[MachineOutput, io.StringIO]:

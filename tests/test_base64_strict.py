@@ -14,7 +14,7 @@ import os
 
 import pytest
 
-from megabasterd_cli.core.crypto import b64_url_decode, b64_url_encode
+from kiwi_dl.core.crypto import b64_url_decode, b64_url_encode
 
 
 def _ref(data: str) -> bytes:

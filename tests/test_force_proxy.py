@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import pytest
 
-from megabasterd_cli.core.api import MegaAPIClient
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import MegaError, TransferError
-from megabasterd_cli.proxy.smart_proxy import SmartProxyPool
+from kiwi_dl.core.api import MegaAPIClient
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import MegaError, TransferError
+from kiwi_dl.proxy.smart_proxy import SmartProxyPool
 
 # ---------------------------------------------------------------------------
 # MegaAPIClient._request_proxies

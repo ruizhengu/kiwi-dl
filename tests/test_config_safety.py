@@ -10,15 +10,15 @@ import threading
 import pytest
 from click.testing import CliRunner
 
-from megabasterd_cli.cli import cli
-from megabasterd_cli.config import Config, ConfigLockError, ConfigStore, display_value
-from megabasterd_cli.utils.filelock import FileLock
+from kiwi_dl.cli import cli
+from kiwi_dl.config import Config, ConfigLockError, ConfigStore, display_value
+from kiwi_dl.utils.filelock import FileLock
 
 
 @pytest.fixture()
 def cli_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "logs"))
     return tmp_path
 
 
@@ -102,7 +102,7 @@ def test_valid_get_set_migrate_exit_zero(cli_env):
 
 
 def test_set_null_stores_json_null(cli_env, tmp_path):
-    from megabasterd_cli.config import config_file
+    from kiwi_dl.config import config_file
 
     runner = CliRunner()
     runner.invoke(cli, ["config", "set", "smart_proxy_url", "http://p:8080"])
@@ -143,7 +143,7 @@ def test_unset_non_nullable_fails_nonzero(cli_env):
 
 
 def test_reload_preserves_none(cli_env, tmp_path):
-    from megabasterd_cli.config import config_file
+    from kiwi_dl.config import config_file
 
     store = ConfigStore(config_file())
     store.set("smart_proxy_url", "http://p:8080")
@@ -200,7 +200,7 @@ def test_two_store_instances_set_different_keys_both_survive(tmp_path):
 _SUB = r"""
 import sys
 from pathlib import Path
-from megabasterd_cli.config import ConfigStore
+from kiwi_dl.config import ConfigStore
 ConfigStore(Path(sys.argv[1])).set(sys.argv[2], sys.argv[3])
 """
 

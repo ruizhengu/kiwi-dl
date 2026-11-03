@@ -16,7 +16,7 @@ import multiprocessing as mp
 
 import pytest
 
-from megabasterd_cli.core.state import (
+from kiwi_dl.core.state import (
     StateCorruptionError,
     TransferState,
     clear_state,
@@ -213,8 +213,8 @@ def test_no_temp_files_are_left_after_saving(tmp_path):
 def _hammer(args):
     """Worker PROCESS: repeatedly rewrite the same state file."""
     destination, chunk_base, rounds = args
-    from megabasterd_cli.core.state import TransferState as WorkerState
-    from megabasterd_cli.core.state import save_state as save
+    from kiwi_dl.core.state import TransferState as WorkerState
+    from kiwi_dl.core.state import save_state as save
 
     state = WorkerState(
         transfer_type="download",

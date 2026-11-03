@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from megabasterd_cli.config import ConfigStore
+from kiwi_dl.config import ConfigStore
 
 
 def _tmp_leftovers(directory):

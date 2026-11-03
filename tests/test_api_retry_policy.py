@@ -18,13 +18,13 @@ import json as _json
 import pytest
 import requests
 
-from megabasterd_cli.core.api import (
+from kiwi_dl.core.api import (
     READ_ONLY_ACTIONS,
     AmbiguousMutationError,
     MegaAPIClient,
     is_mutating,
 )
-from megabasterd_cli.core.errors import RateLimitError
+from kiwi_dl.core.errors import RateLimitError
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +32,7 @@ def _no_backoff_sleeps(monkeypatch):
     """Exercise the retry POLICY, not tenacity's wall-clock backoff."""
     from tenacity import wait_none
 
-    from megabasterd_cli.core import api as api_module
+    from kiwi_dl.core import api as api_module
 
     monkeypatch.setattr(api_module, "RETRY_WAIT", wait_none())
 
