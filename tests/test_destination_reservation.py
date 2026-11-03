@@ -121,8 +121,8 @@ def _claim_in_process(args):
 
     from kiwi_dl.utils.helpers import claim_destination as claim
 
-    # Rendezvous through the filesystem (a mp.Barrier cannot cross `spawn`
-    # cleanly on Windows): announce readiness, then wait for everyone.
+    # Rendezvous through the filesystem (an mp.Barrier does not pass through
+    # `spawn`): announce readiness, then wait for everyone.
     FsPath(ready_dir, f"{_os.getpid()}.ready").write_text("1", encoding="utf-8")
     deadline = time.monotonic() + 30
     while len(list(FsPath(ready_dir).glob("*.ready"))) < worker_count:
@@ -142,7 +142,7 @@ def test_two_processes_cannot_claim_the_same_destination(tmp_path):
     ready = tmp_path / "ready"
     ready.mkdir()
     workers = 4
-    ctx = mp.get_context("spawn")  # Windows-compatible
+    ctx = mp.get_context("spawn")
     args = [(str(tmp_path), "shared.bin", str(ready), workers)] * workers
     with ctx.Pool(workers) as pool:
         claimed = pool.map(_claim_in_process, args)
@@ -285,12 +285,12 @@ def test_sidecar_is_reused_not_recreated(tmp_path):
     target = tmp_path / "stable.bin"
     first = claim_destination(target)
     sidecar = tmp_path / (first.name + CLAIM_SUFFIX)
-    inode_before = sidecar.stat().st_ino if _os.name != "nt" else sidecar.stat().st_ctime_ns
+    inode_before = sidecar.stat().st_ino
     release_destination(first)
 
     second = claim_destination(target)
     try:
-        inode_after = sidecar.stat().st_ino if _os.name != "nt" else sidecar.stat().st_ctime_ns
+        inode_after = sidecar.stat().st_ino
         assert second == first
         assert inode_after == inode_before, "the sidecar was recreated, not reused"
     finally:

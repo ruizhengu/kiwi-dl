@@ -291,9 +291,8 @@ def mg_dl_main() -> int:
 
 
 def _run(command: click.Command, prog_name: str) -> int:
-    # Make stdout/stderr Unicode-safe on legacy Windows terminals so messages
-    # that contain characters outside cp1252 (e.g. arrows, em-dashes, non-Latin
-    # filenames returned by MEGA) don't crash the process.
+    # Make stdout/stderr Unicode-safe so a non-UTF-8 locale cannot crash the
+    # process on an arrow, an em-dash or a non-Latin filename from MEGA.
     for stream_name in ("stdout", "stderr"):
         stream = getattr(sys, stream_name, None)
         reconfigure = getattr(stream, "reconfigure", None)

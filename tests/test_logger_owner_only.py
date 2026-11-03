@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 
 import pytest
 
@@ -49,16 +48,3 @@ def test_log_and_rotated_backup_are_owner_only(tmp_path, logging_teardown):
 
     for path in ((tmp_path / "cli.log"), backup):
         assert path.stat().st_mode & 0o777 == 0o600, f"{path.name} is {oct(path.stat().st_mode)}"
-
-
-@pytest.mark.skipif(os.name != "nt", reason="Windows ACLs")
-def test_log_and_rotated_backup_do_not_inherit_acls(tmp_path, logging_teardown):
-    backup = _write_log(tmp_path / "cli.log")
-
-    for path in ((tmp_path / "cli.log"), backup):
-        acl = subprocess.run(
-            ["icacls", str(path)], capture_output=True, text=True, timeout=60
-        ).stdout
-        # "(I)" marks an ACE inherited from the parent directory; a protected
-        # owner-only DACL has none.
-        assert "(I)" not in acl, f"{path.name} still inherits ACLs:\n{acl}"

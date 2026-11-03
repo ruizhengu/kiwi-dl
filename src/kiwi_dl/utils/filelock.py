@@ -1,14 +1,14 @@
-"""Cross-platform advisory file lock shared by the config, proxy-pool and state stores.
+"""Advisory file lock shared by the config, proxy-pool and state stores.
 
-`msvcrt.locking` on Windows and `fcntl.flock` on POSIX both block other
-processes AND other open descriptors in the same process, so two store
-instances anywhere (threads, instances, or processes) are serialized.
-Acquisition is bounded by a timeout and never silently skipped.
+`fcntl.flock` blocks other processes AND other open descriptors in the same
+process, so two store instances anywhere (threads, instances, or processes)
+are serialized. Acquisition is bounded by a timeout and never silently skipped.
 """
 
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import os
 import time
 from pathlib import Path
@@ -19,7 +19,7 @@ class FileLockError(Exception):  # noqa: N818 - a timeout, not a generic error
 
 
 class FileLock:
-    """A bounded, cross-platform exclusive lock backed by a sidecar file."""
+    """A bounded exclusive lock backed by a sidecar file."""
 
     def __init__(self, path: Path, message: str | None = None):
         self.path = path
@@ -33,25 +33,7 @@ class FileLock:
         try:
             while True:
                 try:
-                    if os.name == "nt":
-                        # msvcrt only exists on Windows; fcntl only on POSIX.
-                        # Each platform's module is invisible to mypy on the
-                        # other, so both branches are attribute-ignored.
-                        import msvcrt  # type: ignore[import-not-found, unused-ignore]
-
-                        os.lseek(fd, 0, os.SEEK_SET)
-                        msvcrt.locking(  # type: ignore[attr-defined, unused-ignore]
-                            fd,
-                            msvcrt.LK_NBLCK,  # type: ignore[attr-defined, unused-ignore]
-                            1,
-                        )
-                    else:
-                        import fcntl  # type: ignore[import-not-found, unused-ignore]
-
-                        fcntl.flock(  # type: ignore[attr-defined, unused-ignore]
-                            fd,
-                            fcntl.LOCK_EX | fcntl.LOCK_NB,  # type: ignore[attr-defined, unused-ignore]
-                        )
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     self._fd = fd
                     return
                 except OSError:
@@ -73,20 +55,7 @@ class FileLock:
         if fd is None:
             return
         try:
-            if os.name == "nt":
-                import msvcrt  # type: ignore[import-not-found, unused-ignore]
-
-                os.lseek(fd, 0, os.SEEK_SET)
-                with contextlib.suppress(OSError):
-                    msvcrt.locking(  # type: ignore[attr-defined, unused-ignore]
-                        fd,
-                        msvcrt.LK_UNLCK,  # type: ignore[attr-defined, unused-ignore]
-                        1,
-                    )
-            else:
-                import fcntl  # type: ignore[import-not-found, unused-ignore]
-
-                with contextlib.suppress(OSError):
-                    fcntl.flock(fd, fcntl.LOCK_UN)  # type: ignore[attr-defined, unused-ignore]
+            with contextlib.suppress(OSError):
+                fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)

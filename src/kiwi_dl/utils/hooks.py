@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shlex
 import subprocess
 from pathlib import Path
@@ -12,12 +11,11 @@ log = logging.getLogger(__name__)
 
 
 def parse_hook_command(command: str) -> list[str]:
-    """Split a configured hook command into argv, per-platform.
+    """Split a configured hook command into argv with POSIX quoting rules.
 
-    Windows paths need non-POSIX splitting (backslashes are not escapes);
-    POSIX systems need real POSIX quoting rules. Never uses shell=True.
+    Never uses shell=True.
     """
-    return shlex.split(command, posix=(os.name != "nt"))
+    return shlex.split(command)
 
 
 def _spawn_hook(command: str, appended: list[str], label: str) -> None:

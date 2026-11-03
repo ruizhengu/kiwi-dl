@@ -8,15 +8,7 @@ import kiwi_dl.utils.hooks as hooks_module
 from kiwi_dl.utils.hooks import parse_hook_command, run_post_transfer_command
 
 
-def test_parse_hook_command_windows_keeps_backslashes(monkeypatch):
-    monkeypatch.setattr(hooks_module.os, "name", "nt")
-    argv = parse_hook_command(r'C:\Tools\notify.exe --path "C:\My Files"')
-    assert argv[0] == r"C:\Tools\notify.exe"
-    assert argv[-1] == r'"C:\My Files"'  # non-POSIX split keeps quotes intact
-
-
-def test_parse_hook_command_posix_uses_posix_rules(monkeypatch):
-    monkeypatch.setattr(hooks_module.os, "name", "posix")
+def test_parse_hook_command_uses_posix_rules():
     argv = parse_hook_command("/usr/bin/notify --msg 'hello world'")
     assert argv == ["/usr/bin/notify", "--msg", "hello world"]
 
