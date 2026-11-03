@@ -5,8 +5,12 @@ failure here is worth replaying lives with the downloader
 (`_is_transient_chunk_failure`), because the distinction between a transient
 fault and a deterministic refusal is what that predicate exists to encode.
 
-Every failure path reports the proxy it used back to the pool, except CDN URL
-expiry - that is the URL ageing out, not the proxy misbehaving.
+Every failure on a pool proxy is reported to the download's `ChunkRouter`,
+which bans the proxy (an HTTP error, a mangled range) or sets it aside for this
+worker (a timeout, a dropped connection, a 429), and the attempt is retried at
+once on a new route. CDN URL expiry is the exception - that is the URL ageing
+out, not the proxy misbehaving. A direct 509 goes to the downloader, which
+opens the proxy window, waits from the quota budget, or stops the download.
 """
 
 from __future__ import annotations
@@ -15,14 +19,10 @@ import logging
 
 import requests
 
+from ..proxy.quota_router import Route, RouteAgain
 from .chunks import Chunk, chunk_mac
 from .crypto import ctr_offset_to_counter, make_ctr_cipher
-from .errors import (
-    NonRetryableTransferError,
-    RetryableTransferError,
-    TransferError,
-    TransferQuotaError,
-)
+from .errors import NonRetryableTransferError, RetryableTransferError, TransferError
 from .range_validation import RangeNotHonoredError, validate_range_response
 from .state import TransferState, save_state, snapshot_state
 
@@ -48,6 +48,12 @@ class CdnUrlExpired(TransferError):  # noqa: N818 - internal retry sentinel name
     """Raised when the CDN URL has expired and needs to be refreshed."""
 
 
+def _proxy_fault(dl, route: Route, *, ban: bool, why: str) -> None:
+    """Bench the proxy this attempt went through and retry on a new route."""
+    dl._router.proxy_failed(route, ban=ban, why=why)
+    raise RouteAgain(why)
+
+
 def fetch_chunk(
     dl,  # MegaDownloader
     chunk: Chunk,
@@ -69,7 +75,8 @@ def fetch_chunk(
         "Range": f"bytes={chunk.offset}-{chunk.offset + chunk.size - 1}",
         "User-Agent": dl.user_agent,
     }
-    request_proxies, picked_proxy = dl._proxies_for_request()
+    route = dl._router.route()
+    proxied = route.proxy is not None
     encrypted = bytearray()
     try:
         with requests.get(
@@ -77,7 +84,7 @@ def fetch_chunk(
             headers=headers,
             timeout=dl.timeout,
             stream=True,
-            proxies=request_proxies,
+            proxies=route.proxies,
         ) as resp:
             if resp.status_code in URL_EXPIRY_STATUS:
                 # Refresh the URL exactly once per generation, then retry.
@@ -87,12 +94,18 @@ def fetch_chunk(
                     message=f"CDN URL expired (HTTP {resp.status_code}) for chunk {chunk.index}"
                 )
             if resp.status_code == QUOTA_EXCEEDED_STATUS:
-                # The quota belongs to the route this request took, so a
-                # proxy that hits it is spent for now.
-                dl._selector.report_failure(picked_proxy)
-                raise TransferQuotaError(time_left=quota_time_left(resp.headers))
+                # The quota belongs to the exit IP this request used.
+                if proxied:
+                    _proxy_fault(dl, route, ban=True, why="HTTP 509, its quota is spent")
+                dl._on_direct_quota(route, quota_time_left(resp.headers), generation)
+                raise RouteAgain("direct route over quota")
             if resp.status_code not in (200, 206):
-                dl._selector.report_failure(picked_proxy)
+                if proxied:
+                    # A 429 is the proxy asking this client to slow down;
+                    # anything else means it is broken or refusing us.
+                    _proxy_fault(
+                        dl, route, ban=resp.status_code != 429, why=f"HTTP {resp.status_code}"
+                    )
                 if resp.status_code >= 500:
                     raise RetryableTransferError(
                         message=f"HTTP {resp.status_code} for chunk {chunk.index}"
@@ -117,7 +130,8 @@ def fetch_chunk(
                     state.total_size,
                 )
             except RangeNotHonoredError as exc:
-                dl._selector.report_failure(picked_proxy)
+                if proxied:
+                    _proxy_fault(dl, route, ban=True, why=f"ignored the range: {exc}")
                 # A protocol violation, not a transient fault: retrying the
                 # same request against the same server would repeat it.
                 raise NonRetryableTransferError(
@@ -133,7 +147,8 @@ def fetch_chunk(
                 if dl._stop_event.is_set():
                     return
                 if len(encrypted) + len(block) > chunk.size:
-                    dl._selector.report_failure(picked_proxy)
+                    if proxied:
+                        _proxy_fault(dl, route, ban=True, why="sent more than the range")
                     raise NonRetryableTransferError(
                         message=(
                             f"Upstream sent more than the requested range for chunk "
@@ -142,12 +157,25 @@ def fetch_chunk(
                     )
                 encrypted.extend(block)
                 dl.limiter.consume(len(block))
-    except (requests.ConnectionError, requests.Timeout):
-        dl._selector.report_failure(picked_proxy)
+    except (
+        requests.ConnectionError,
+        requests.Timeout,
+        requests.exceptions.ChunkedEncodingError,
+    ) as exc:
+        if proxied:
+            _proxy_fault(dl, route, ban=False, why=type(exc).__name__)
+        raise
+    except requests.RequestException as exc:
+        # The client cannot use this proxy at all - a socks5:// entry without
+        # PySocks installed raises InvalidSchema before any byte is sent - so
+        # it is benched like a broken proxy instead of failing the download.
+        if proxied:
+            _proxy_fault(dl, route, ban=True, why=f"{type(exc).__name__}: {exc}")
         raise
 
     if len(encrypted) != chunk.size:
-        dl._selector.report_failure(picked_proxy)
+        if proxied:
+            _proxy_fault(dl, route, ban=False, why="connection dropped mid-chunk")
         raise NonRetryableTransferError(
             message=f"Chunk {chunk.index} short read: got {len(encrypted)}, expected {chunk.size}"
         )
@@ -181,4 +209,4 @@ def fetch_chunk(
     if state_to_save is not None:
         save_state(state_to_save)
 
-    dl._selector.report_success(picked_proxy)
+    dl._router.proxy_succeeded(route)

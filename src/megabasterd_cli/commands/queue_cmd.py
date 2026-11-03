@@ -238,11 +238,18 @@ def queue_run(ctx: click.Context, vault_passphrase: str | None, mfa_code: str | 
 
     run_id = uuid.uuid4().hex[:12]
 
+    from ..proxy.quota_router import SmartProxyPolicy
     from ..proxy.runtime import effective_pool
 
     proxy_pool = effective_pool(cfg)
 
-    api = api_for(cfg, proxy_pool=proxy_pool, user_agent=cfg.user_agent)
+    # As in `mb download`: the pool carries chunks (on a 509, by default), and
+    # MEGA API calls for downloads stay direct unless strict.
+    api = api_for(
+        cfg,
+        proxy_pool=proxy_pool if cfg.force_smart_proxy else None,
+        user_agent=cfg.user_agent,
+    )
     # Aggregate command-wide caps shared with every queue transfer.
     download_limiter = make_limiter(cfg.speed_limit_kbps)
     upload_limiter = make_limiter(cfg.upload_speed_limit_kbps)
@@ -260,6 +267,7 @@ def queue_run(ctx: click.Context, vault_passphrase: str | None, mfa_code: str | 
         limiter=download_limiter,
         auto_resume=cfg.auto_resume,
         user_agent=cfg.user_agent,
+        smart_proxy=SmartProxyPolicy.from_config(cfg, proxy_pool),
     )
 
     # Lazy-unlock the credential vault only when we hit an upload item.

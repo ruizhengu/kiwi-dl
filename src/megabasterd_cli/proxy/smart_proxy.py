@@ -9,9 +9,11 @@ down for a short period.
 from __future__ import annotations
 
 import logging
+import math
 import random
 import threading
 import time
+from collections.abc import Collection
 from dataclasses import dataclass
 
 import requests
@@ -64,10 +66,14 @@ class SmartProxyPool:
     # ------------------------------------------------------------------
     # Selection and feedback
     # ------------------------------------------------------------------
-    def pick(self) -> ProxyEntry | None:
-        """Pick a random available proxy (preferring healthier ones)."""
+    def pick(self, exclude: Collection[str] = ()) -> ProxyEntry | None:
+        """Pick a random available proxy (preferring healthier ones).
+
+        `exclude` leaves out entries one caller has given up on without
+        benching them for everyone (see `ChunkRouter`).
+        """
         with self._lock:
-            available = [e for e in self._entries if e.is_available]
+            available = [e for e in self._entries if e.is_available and e.url not in exclude]
             if not available:
                 return None
             # Weight by success ratio (avoid div-by-zero)
@@ -86,6 +92,24 @@ class SmartProxyPool:
                 if e.url == url:
                     e.successes += 1
                     e.failures = max(0, e.failures - 1)
+                    return
+
+    def is_usable(self, url: str) -> bool:
+        """True while `url` is in the pool and not banned or cooling down."""
+        with self._lock:
+            return any(e.url == url and e.is_available for e in self._entries)
+
+    def ban(self, url: str, seconds: float) -> None:
+        """Bench `url` for every caller for `seconds`; 0 means for good.
+
+        "For good" is the life of this pool object, i.e. the current command:
+        the pool is rebuilt from disk on every run.
+        """
+        with self._lock:
+            for e in self._entries:
+                if e.url == url:
+                    e.failures += 1
+                    e.cooldown_until = time.monotonic() + seconds if seconds > 0 else math.inf
                     return
 
     def report_failure(self, url: str) -> None:

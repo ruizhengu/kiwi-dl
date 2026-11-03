@@ -403,9 +403,11 @@ python -m pip install -r requirements.txt
 
 ### MEGA quota exceeded
 
-The downloader waits for `quota_wait_seconds` and retries up to
-`quota_max_wait_loops`. You can lower the wait loop count or switch to proxy
-mode if the quota is IP-based.
+A chunk answered with HTTP 509 means this IP's transfer quota is spent; the
+error says when it resets. With a proxy pool and `smart_proxy_enabled`, the
+download moves to the pool by itself (`smart_proxy_mode`). Without one it stops
+at once, or waits up to `quota_budget_seconds` in total if you set it. API-level
+quota errors still wait `quota_wait_seconds`, up to `quota_max_wait_loops` times.
 
 ### MAC verification failed
 
@@ -433,4 +435,5 @@ on Linux.
 | --- | --- |
 | `0` | Success. |
 | `1` | Fatal error or dependency setup failure. |
+| `3` | `download` only: every failed item was stopped by MEGA's transfer quota (HTTP 509). Retry once it resets; `--json` records carry `quota_resets_in_seconds`. |
 | `130` | Interrupted with Ctrl+C. |

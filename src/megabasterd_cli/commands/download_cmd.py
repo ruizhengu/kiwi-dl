@@ -30,6 +30,7 @@ from ..utils.selection import (
 from ..utils.speed import make_limiter
 from .api_support import api_for
 from .download_support import (
+    EXIT_QUOTA_EXCEEDED,
     _download_file,
     _download_folder,
     _download_folder_file,
@@ -228,11 +229,15 @@ def download(
     parallel = max(1, parallel)
 
     # Smart proxy: if enabled and no explicit --proxy was given, load the
-    # persistent pool + any URLs from `smart_proxy_url` config so chunk
-    # requests are routed through rotating proxies.
+    # persistent pool + any URLs from `smart_proxy_url` config. One policy for
+    # the whole command, because MEGA's quota belongs to the exit IP: a 509 on
+    # one file opens the proxy window for every file (proxy/quota_router.py).
+    from ..proxy.quota_router import SmartProxyPolicy
     from ..proxy.runtime import effective_pool_for_cmd
 
     proxy_pool = effective_pool_for_cmd(cfg, proxy)
+    smart_proxy = SmartProxyPolicy.from_config(cfg, proxy_pool)
+    quota_stops: list[str] = []
 
     def _new_api() -> MegaAPIClient:
         """One isolated API client (own Session + sequence) per transfer.
@@ -241,7 +246,15 @@ def download(
         and SID; independent parallel transfers must never share one. The
         proxy pool below IS shared — it is explicitly thread-safe.
         """
-        return api_for(cfg, proxies=proxies, proxy_pool=proxy_pool, user_agent=cfg.user_agent)
+        # The pool is for chunks. API calls stay direct unless strict: an
+        # anonymous `a:g` keeps answering while the transfer quota is spent, so
+        # proxying it only hands the link to more third parties.
+        return api_for(
+            cfg,
+            proxies=proxies,
+            proxy_pool=proxy_pool if cfg.force_smart_proxy else None,
+            user_agent=cfg.user_agent,
+        )
 
     # ONE limiter per command: `speed_limit_kbps` (or --limit) is an aggregate
     # cap shared by every parallel transfer, not a per-file value.
@@ -268,6 +281,7 @@ def download(
             limiter=shared_limiter,
             auto_resume=cfg.auto_resume,
             user_agent=cfg.user_agent,
+            smart_proxy=smart_proxy,
         )
 
     # First pass: parse + filter URLs, collect actionable jobs
@@ -407,6 +421,7 @@ def download(
                                 rename_to=rename_to,
                                 machine=machine,
                                 run_command=cfg.run_command,
+                                quota_stops=quota_stops,
                             )
                             else 1
                         )
@@ -424,6 +439,7 @@ def download(
                             rename_to=rename_to,
                             machine=machine,
                             run_command=cfg.run_command,
+                            quota_stops=quota_stops,
                         )
 
                     with ThreadPoolExecutor(max_workers=parallel) as pool:
@@ -449,6 +465,7 @@ def download(
                             file_filter=folder_file_filter,
                             machine=machine,
                             run_command=cfg.run_command,
+                            quota_stops=quota_stops,
                         )
                         failures += 0 if outcome else 1
                 else:
@@ -463,6 +480,7 @@ def download(
                             file_filter=folder_file_filter,
                             machine=machine,
                             run_command=cfg.run_command,
+                            quota_stops=quota_stops,
                         )
 
                     with ThreadPoolExecutor(max_workers=parallel) as pool:
@@ -486,6 +504,7 @@ def download(
             quiet=quiet,
             machine=machine,
             run_command=cfg.run_command,
+            quota_stops=quota_stops,
         ):
             failures += 1
 
@@ -502,4 +521,6 @@ def download(
 
     if failures:
         print_error(f"{failures} download item(s) failed.")
+        if len(quota_stops) == failures:
+            ctx.exit(EXIT_QUOTA_EXCEEDED)
         ctx.exit(1)
