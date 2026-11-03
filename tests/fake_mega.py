@@ -402,6 +402,13 @@ class FakeCdn:
 
     Every request is appended to `self.requests` as a dict, so a test can
     assert on which URL, range and route each chunk actually used.
+
+    Quota is per ROUTE - the exit IP MEGA sees: "direct", or the proxy URL the
+    request went through. `quota[route]` is how many bytes that route may still
+    be served; past it, the answer is what a live anonymous quota hit returned
+    (Nov 2026): 509 with an empty body, `X-MEGA-Time-Left` and
+    `Connection: close`. The URL that got the 509 is burned and answers 403
+    from then on, as the live one did when asked again.
     """
 
     def __init__(self, size: int = 3 * 1024 * 1024, block_delay: float = 0.0):
@@ -433,6 +440,10 @@ class FakeCdn:
         # Scripted failures: called with the request record before anything is
         # served; returning an exception makes `get` raise it.
         self.fail_with = None
+        self.quota: dict[str, int] = {}  # route -> bytes it may still be served
+        self.served: dict[str, int] = {}
+        self.time_left = 20226
+        self.burned: set[str] = set()
 
     def issue_url(self) -> str:
         """A fresh CDN URL, as the `a:g` resolver would hand out."""
@@ -442,7 +453,8 @@ class FakeCdn:
 
     def get(self, url, headers=None, timeout=None, stream=False, proxies=None):
         start, end = (int(x) for x in headers["Range"].split("=", 1)[1].split("-"))
-        record = {"url": url, "start": start, "end": end, "proxies": proxies}
+        route = (proxies or {}).get("http") or "direct"
+        record = {"url": url, "start": start, "end": end, "proxies": proxies, "route": route}
         with self._lock:
             self.requests.append(record)
         if self.fail_with is not None:
@@ -450,6 +462,17 @@ class FakeCdn:
             if exc is not None:
                 raise exc
         body = self.ciphertext[start : end + 1]
+        closing = {"Content-Length": "0", "Connection": "close"}
+        with self._lock:
+            if url in self.burned:
+                record["status"] = 403
+                return _CdnResponse(403, closing)
+            allowed = self.quota.get(route)
+            if allowed is not None and self.served.get(route, 0) + len(body) > allowed:
+                self.burned.add(url)
+                record["status"] = 509
+                return _CdnResponse(509, {"X-MEGA-Time-Left": str(self.time_left), **closing})
+            self.served[route] = self.served.get(route, 0) + len(body)
         record["status"] = 206
         return _CdnResponse(
             206,

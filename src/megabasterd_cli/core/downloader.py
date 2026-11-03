@@ -11,8 +11,9 @@ The downloader:
    MAC and verified against the MAC embedded in the file key.
 
 CDN URLs returned by MEGA are time-limited. If a chunk request fails with one
-of the "URL expired" responses (403, 410, 509), the downloader transparently
-re-fetches a fresh URL via the supplied resolver and retries.
+of the "URL expired" responses (403, 410), the downloader transparently
+re-fetches a fresh URL via the supplied resolver and retries. HTTP 509 is not
+one of them: it is the exit IP's transfer quota, raised as `TransferQuotaError`.
 
 This module is the entry point and owns the orchestration: quota recovery, CDN
 URL generation state, the destination claim, the worker pool, and the
@@ -59,6 +60,7 @@ from .errors import (
     RetryableTransferError,
     TransferCancelled,
     TransferError,
+    TransferQuotaError,
 )
 from .progress_ticker import progress_ticker
 from .range_validation import validate_range_response
@@ -648,6 +650,10 @@ class MegaDownloader:
                             else:
                                 clear_state(destination)
                             log.error("Chunk %d failed: %s", chunk.index, e)
+                            if isinstance(e, TransferQuotaError):
+                                # Keep the type: it carries the reset time, and
+                                # callers tell a quota stop from a failure by it.
+                                raise
                             raise TransferError(message=f"Chunk {chunk.index} failed: {e}") from e
                 except KeyboardInterrupt:
                     # Ctrl-C lands on this thread. Leaving the `with` joins the

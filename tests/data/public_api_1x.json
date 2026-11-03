@@ -370,8 +370,10 @@
   ],
   "megabasterd_cli.core.download_transport": [
     "CdnUrlExpired",
+    "QUOTA_EXCEEDED_STATUS",
     "URL_EXPIRY_STATUS",
-    "fetch_chunk"
+    "fetch_chunk",
+    "quota_time_left"
   ],
   "megabasterd_cli.core.download_verify": [
     "DeclaredSizeError",
@@ -409,6 +411,8 @@
     "RetryableTransferError",
     "TransferCancelled",
     "TransferError",
+    "TransferQuotaError",
+    "format_time_left",
     "raise_for_code"
   ],
   "megabasterd_cli.core.folder_downloader": [
