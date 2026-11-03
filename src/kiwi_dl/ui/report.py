@@ -98,8 +98,8 @@ def summary(console: Console, title: str, rows: list[tuple[str, str]], ok: bool 
     console.print()
     console.print(rule)
     symbol, style = (SYMBOL["ok"], "kiwi.success") if ok else (SYMBOL["fail"], "kiwi.error")
-    console.print(Text(f"{symbol} {title}", style=style))
+    console.print(Text().append(f"{symbol} ", style=style).append(title, style="bold"))
     for label, value in rows:
-        line = Text(f"  {label.ljust(label_width)}   ", style="kiwi.muted")
+        line = Text().append(f"  {label.ljust(label_width)}   ", style="kiwi.muted")
         console.print(line.append_text(literal(value)))
     console.print(rule)
