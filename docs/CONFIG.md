@@ -78,6 +78,7 @@ from the corrupt file.
 | `keep_state_files_on_error` | `true` | Keep state files after failed transfers. |
 | `quota_wait_seconds` | `3600` | Wait after quota errors. |
 | `quota_max_wait_loops` | `24` | Maximum quota wait loops. |
+| `quota_budget_seconds` | `0` | How long, in total per command, downloads may wait out MEGA's transfer quota (a chunk answered with HTTP 509) when no proxy can take over. `0` stops at once, printing when the quota resets; the exit code is `3` when only the quota stopped the batch. |
 
 ## Account and Streaming Settings
 
@@ -93,6 +94,9 @@ from the corrupt file.
 | --- | --- | --- |
 | `smart_proxy_enabled` | `false` | Enable rotating proxy pool. |
 | `smart_proxy_url` | `null` | One proxy URL or a comma-separated URL list. |
+| `smart_proxy_mode` | `on-509` | How downloads use the pool. `on-509` (MegaBasterd's SmartProxy): direct first; when a chunk gets HTTP 509 (transfer quota), every download of the command sends its chunks through the pool for `smart_proxy_window_seconds`, then tries direct again. `always`: chunks through the pool from the first byte. `off`: never. MEGA API calls stay direct unless `force_smart_proxy` is on. |
+| `smart_proxy_window_seconds` | `3600` | How long a 509 keeps chunks on proxies (60–86400). Shortened to MEGA's own reset time when that comes sooner, and ended early when the local network route changes. |
+| `smart_proxy_ban_seconds` | `300` | How long a proxy that answered a 509 or another HTTP error is skipped by every worker; `0` skips it for the rest of the command. A timeout, dropped connection or 429 only makes the worker that saw it try another proxy. |
 | `force_smart_proxy` | `false` | Refuse direct connections. Enforced on EVERY outbound request - API calls, chunk transfers, streaming CDN reads, MegaCrypter/DLC/ELC resolution, and `proxy fetch` - and the refusal happens before a socket is opened, with no direct fallback after a proxy failure. |
 
 ### Deprecated keys

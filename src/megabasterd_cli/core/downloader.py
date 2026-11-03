@@ -41,6 +41,7 @@ import requests
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 from tenacity.stop import stop_base
 
+from ..proxy.quota_router import ChunkRouter, Route, RouteAgain, SmartProxyPolicy
 from ..proxy.selector import ProxySelector
 from ..utils.helpers import available_disk_space, claim_destination, release_destination
 from ..utils.speed import RollingSpeedMeter, make_limiter
@@ -61,6 +62,7 @@ from .errors import (
     TransferCancelled,
     TransferError,
     TransferQuotaError,
+    format_time_left,
 )
 from .progress_ticker import progress_ticker
 from .range_validation import validate_range_response
@@ -76,6 +78,10 @@ from .state import (
 )
 
 log = logging.getLogger(__name__)
+
+# While quota-blocked, a worker re-tries the direct route (one cheap request)
+# at most this often, so a quota that comes back is noticed within a minute.
+QUOTA_RECHECK_SECONDS = 60
 
 __all__ = [
     "CdnUrlExpired",
@@ -216,6 +222,7 @@ class MegaDownloader:
         limiter=None,  # Shared TokenBucket for aggregate command caps
         auto_resume: bool = True,
         user_agent: str | None = None,
+        smart_proxy: SmartProxyPolicy | None = None,
     ):
         from .api import default_user_agent
 
@@ -232,6 +239,16 @@ class MegaDownloader:
         # One shared selection authority (see proxy/selector.py); the old
         # per-class copy of this logic is gone.
         self._selector = ProxySelector(pool=proxy_pool, static=proxies, force=force_proxy)
+        # Chunk routing (see proxy/quota_router.py): direct first, the pool
+        # once a 509 opens the command's proxy window. One policy is shared
+        # by every download of a command; the router's per-worker state is
+        # this download's own.
+        self.smart_proxy = (
+            smart_proxy
+            if smart_proxy is not None
+            else SmartProxyPolicy(proxy_pool, strict=force_proxy)
+        )
+        self._router = ChunkRouter(self.smart_proxy, static=proxies)
         # When a shared limiter is supplied, all downloaders of one command
         # drain the same bucket, so `speed_limit_kbps` acts as an aggregate
         # cap instead of multiplying per parallel file.
@@ -356,8 +373,10 @@ class MegaDownloader:
         pool = self._selector.pool
         return pool is not None and any(entry.is_available for entry in pool.list())
 
-    def _wait_out_quota(self, wait: int) -> None:
+    def _wait_out_quota(self, wait: float) -> bool:
         """Sleep up to `wait` seconds, waking early on cancel or a route change.
+
+        Returns True when it woke because the local route changed.
 
         The route is re-read on the tick the stop event already needs, so
         detection costs one local syscall every two seconds and no extra
@@ -371,16 +390,70 @@ class MegaDownloader:
             slept += 2
             if route is not None and _local_route_fingerprint() not in (None, route):
                 log.info("Local route changed during the quota wait; retrying now")
-                return
+                return True
+        return False
+
+    def _on_direct_quota(self, route: Route, time_left: int | None, generation: int) -> None:
+        """A chunk sent direct got 509. Return to retry it; raise to stop.
+
+        The first 509 on the direct route opens the command's proxy window, and
+        the retry goes through the pool. A 509 that no proxy can take over - no
+        pool, or this request went direct because the pool had nothing left -
+        is a quota block: it is waited out in steps from the command's quota
+        budget, and once the budget is spent the download stops with the reset
+        time. A route change during the wait ends it and closes the window.
+
+        Either way the URL is replaced first: the one that got the 509 answers
+        403 from then on (observed live), and letting each retry find that out
+        would spend the chunk's retry attempts on refreshes.
+        """
+        policy = self.smart_proxy
+        if policy.pool is not None and not route.fallback:
+            policy.open_window(time_left)
+            self._replace_quota_burned_url(generation)
+            return
+
+        left = policy.budget_left()
+        if left <= 0 or self._stop_event.is_set():
+            if policy.pool is None:
+                why = "no proxy pool is configured to take over"
+            else:
+                why = "every proxy in the pool is banned or failing"
+            if policy.budget_seconds:
+                why += (
+                    f", and the quota budget of {format_time_left(policy.budget_seconds)} is spent"
+                )
+            # The quota is the exit IP's: every other chunk of this download
+            # would only collect the same 509, so stop them before they ask.
+            self._stop_event.set()
+            raise TransferQuotaError(
+                time_left=time_left, message=f"{TransferQuotaError(time_left)}; {why}"
+            )
+
+        self._replace_quota_burned_url(generation)
+        wait = min(left, QUOTA_RECHECK_SECONDS, time_left or QUOTA_RECHECK_SECONDS)
+        log.warning(
+            "MEGA transfer quota exceeded and no proxy can take over; waiting %s "
+            "(quota budget left: %s)",
+            format_time_left(round(wait)),
+            format_time_left(round(left)),
+        )
+        with policy.blocked():
+            if self._wait_out_quota(wait):
+                policy.close_window()
 
     # ------------------------------------------------------------------
     # URL refresh helpers
     # ------------------------------------------------------------------
+    def _replace_quota_burned_url(self, generation: int) -> None:
+        if self._url_resolver is not None:
+            self._refresh_url(generation, why="the URL that got the 509 is refused from now on")
+
     def _current_url(self) -> tuple[str, int]:
         with self._cdn_url_lock:
             return self._cdn_url, self._url_generation
 
-    def _refresh_url(self, seen_generation: int) -> str:
+    def _refresh_url(self, seen_generation: int, why: str = "CDN URL expired") -> str:
         """Refresh the CDN URL if no other worker has already done so."""
         with self._cdn_url_lock:
             if self._url_generation != seen_generation:
@@ -394,7 +467,7 @@ class MegaDownloader:
                 if self._url_generation != seen_generation:
                     return self._cdn_url
 
-            log.info("CDN URL expired; refreshing via resolver")
+            log.info("%s; refreshing via resolver", why)
             fresh_url = resolver()
             with self._cdn_url_lock:
                 if self._url_generation == seen_generation:
@@ -637,10 +710,11 @@ class MegaDownloader:
                         try:
                             fut.result()
                         except Exception as e:
-                            if self._stop_event.is_set():
+                            if self._stop_event.is_set() and not isinstance(e, TransferQuotaError):
                                 # Stopped from outside: an attempt cut short is
                                 # not a chunk failure. The coverage check below
-                                # reports the cancellation.
+                                # reports the cancellation. (A quota stop sets
+                                # the event itself and is reported as such.)
                                 continue
                             self._stop_event.set()
                             if self.keep_state_files_on_error:
@@ -773,7 +847,18 @@ class MegaDownloader:
         `download_transport.fetch_chunk`.
         """
         _worker.stop_event = self._stop_event
-        fetch_chunk(self, chunk, aes_key, nonce, destination, state)
+        # Changing route is not a fault: a proxy that failed is benched by the
+        # router and the chunk retried at once, outside the retry budget. The
+        # loop ends because every proxy a worker gives up on is banned or
+        # excluded, an exhausted pool sends it direct, and a refused direct
+        # attempt either spends quota budget or raises.
+        while True:
+            try:
+                fetch_chunk(self, chunk, aes_key, nonce, destination, state)
+                return
+            except RouteAgain:
+                if self._stop_event.is_set():
+                    return
 
     def _verify_integrity(
         self,

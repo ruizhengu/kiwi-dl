@@ -101,6 +101,16 @@ class Config:
     verify_integrity: bool = True
     smart_proxy_enabled: bool = False
     smart_proxy_url: str | None = None
+    # How downloads use the pool once smart proxy is enabled (MegaBasterd's
+    # SmartProxy, see proxy/quota_router.py):
+    #   "on-509" - direct first; a chunk 509 sends every download's chunks
+    #              through the pool for `smart_proxy_window_seconds`, then
+    #              direct is tried again;
+    #   "always" - every chunk through the pool from the first byte;
+    #   "off"    - never use the pool.
+    smart_proxy_mode: str = "on-509"
+    smart_proxy_window_seconds: int = 3600
+    smart_proxy_ban_seconds: int = 300  # a failing proxy's ban; 0 = for the rest of the run
     timeout_seconds: int = 60
     auto_resume: bool = True
     keep_state_files_on_error: bool = True
@@ -118,6 +128,9 @@ class Config:
     # Quota recovery: wait this many seconds when MEGA returns EOVERQUOTA/-17
     quota_wait_seconds: int = 3600
     quota_max_wait_loops: int = 24  # ~24h with the default
+    # A chunk 509 that no proxy can take over may be waited out up to this
+    # many seconds in total per command; 0 stops at once with the reset time.
+    quota_budget_seconds: int = 0
 
     # Post-transfer hook: run this command (with the transferred path appended
     # as exactly one argument) after every successful download/upload.
@@ -156,6 +169,13 @@ _VALIDATORS: dict[str, tuple] = {
     "timeout_seconds": (lambda v: v > 0, "a positive integer"),
     "quota_wait_seconds": (lambda v: v >= 0, "a non-negative integer"),
     "quota_max_wait_loops": (lambda v: v >= 0, "a non-negative integer"),
+    "quota_budget_seconds": (lambda v: v >= 0, "a non-negative integer"),
+    "smart_proxy_mode": (lambda v: v in ("off", "on-509", "always"), "one of off/on-509/always"),
+    "smart_proxy_window_seconds": (
+        lambda v: 60 <= v <= 86400,
+        "an integer between 60 and 86400",
+    ),
+    "smart_proxy_ban_seconds": (lambda v: v >= 0, "a non-negative integer (0 = rest of the run)"),
     "streaming_port": (lambda v: 1 <= v <= 65535, "a port between 1 and 65535"),
     "connect_proxy_port": (lambda v: 1 <= v <= 65535, "a port between 1 and 65535"),
     "log_max_bytes": (lambda v: v >= 0, "a non-negative integer"),

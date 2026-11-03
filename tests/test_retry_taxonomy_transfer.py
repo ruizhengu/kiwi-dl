@@ -75,7 +75,9 @@ def test_a_policy_refusal_reaches_the_caller_after_one_attempt(monkeypatch):
         attempts.append(1)
         raise ProxyRequiredError(message="pool exhausted")
 
-    monkeypatch.setattr(downloader, "_proxies_for_request", _refuse)
+    # Chunk requests take their route from the download's router (the
+    # strict-mode refusal is raised there), not from `_proxies_for_request`.
+    monkeypatch.setattr(downloader._router, "route", _refuse)
     state = TransferState(
         transfer_type="download", source="x", destination="unused", total_size=4096
     )

@@ -17,7 +17,7 @@ from pathlib import Path
 from ..utils.helpers import ensure_within_directory, sanitize_filename
 from .crypto import a32_to_bytes, bytes_to_a32, str_to_a32
 from .downloader import DownloadProgress, DownloadResult, MegaDownloader
-from .errors import NonRetryableTransferError, TransferError
+from .errors import NonRetryableTransferError, TransferError, TransferQuotaError
 from .links import LinkType, parse_link, require_link_key
 from .share_keys import share_root_handles, unwrap_share_node_key
 
@@ -197,6 +197,7 @@ class MegaFolderDownloader:
 
         results: list[DownloadResult] = []
         failures: list[str] = []
+        errors: list[Exception] = []
 
         def _report_failure(destination: Path, exc: Exception) -> None:
             if on_file_failed:
@@ -225,6 +226,7 @@ class MegaFolderDownloader:
                 except Exception as e:  # noqa: BLE001
                     log.error("Failed to download %s: %s", node.name, e)
                     failures.append(f"{node.name}: {e}")
+                    errors.append(e)
                     _report_failure(destination, e)
         else:
             # Multiple files downloading in parallel: each worker gets its own
@@ -262,6 +264,7 @@ class MegaFolderDownloader:
                     overwrite=self.downloader.overwrite,
                     auto_resume=self.downloader.auto_resume,
                     user_agent=self.downloader.user_agent,
+                    smart_proxy=self.downloader.smart_proxy,
                 )
                 worker_dl.limiter = self.downloader.limiter
                 sub_folder = MegaFolderDownloader(worker_dl)
@@ -291,12 +294,19 @@ class MegaFolderDownloader:
                     except Exception as e:  # noqa: BLE001
                         log.error("Failed to download %s: %s", node.name, e)
                         failures.append(f"{node.name}: {e}")
+                        errors.append(e)
                         _report_failure(destination, e)
 
         if failures:
             sample = "; ".join(failures[:3])
             more = "" if len(failures) <= 3 else f"; and {len(failures) - 3} more"
-            raise TransferError(message=f"{len(failures)} folder file(s) failed: {sample}{more}")
+            message = f"{len(failures)} folder file(s) failed: {sample}{more}"
+            if all(isinstance(e, TransferQuotaError) for e in errors):
+                # Only the quota stopped them: keep that, and the soonest reset.
+                known = [e.time_left for e in errors if isinstance(e, TransferQuotaError)]
+                resets = [t for t in known if t is not None]
+                raise TransferQuotaError(time_left=min(resets) if resets else None, message=message)
+            raise TransferError(message=message)
         return results
 
     @staticmethod

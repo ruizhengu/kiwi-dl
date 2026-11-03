@@ -14,7 +14,7 @@ from pathlib import Path
 
 import click
 
-from ..core.errors import MegaError
+from ..core.errors import MegaError, TransferQuotaError
 from ..core.folder_downloader import MegaFolderDownloader
 from ..ui.machine_output import MachineOutput, error_code_for
 from ..ui.prompts import print_error, print_info, print_success
@@ -71,6 +71,16 @@ def _folder_progress_callbacks(
 
 
 log = logging.getLogger(__name__)
+
+# Exit status when every failed item was stopped by MEGA's transfer quota: the
+# caller can retry the same command once the quota resets (`--json` records
+# carry `quota_resets_in_seconds`). Any other failure in the batch exits 1.
+EXIT_QUOTA_EXCEEDED = 3
+
+
+def _note_quota_stop(exc: BaseException, quota_stops: list[str] | None, url: str) -> None:
+    if quota_stops is not None and isinstance(exc, TransferQuotaError):
+        quota_stops.append(redact_link(url))
 
 
 def _interactive_file_picker(output_dir: Path):
@@ -140,6 +150,7 @@ def _download_file(
     rename_to=None,
     machine: MachineOutput | None = None,
     run_command: str | None = None,
+    quota_stops: list[str] | None = None,
 ) -> bool:
     machine = machine or MachineOutput(False)
     item = progress.add_item(redact_link(url), status="active")
@@ -174,6 +185,7 @@ def _download_file(
         _run_hook_for(result.path, run_command)
         return True
     except MegaError as e:
+        _note_quota_stop(e, quota_stops, url)
         progress.finish_item(item, "failed")
         print_error(f"Download failed: {e}")
         machine.emit(
@@ -213,6 +225,7 @@ def _download_folder(
     quiet: bool = False,
     machine: MachineOutput | None = None,
     run_command: str | None = None,
+    quota_stops: list[str] | None = None,
 ) -> bool:
     machine = machine or MachineOutput(False)
     folder_dl = MegaFolderDownloader(downloader)
@@ -277,6 +290,7 @@ def _download_folder(
         machine.emit(event="result", type="download", status="skipped", source=redact_link(url))
         return True
     except MegaError as e:
+        _note_quota_stop(e, quota_stops, url)
         print_error(f"Folder download failed: {e}")
         machine.emit(
             event="summary",
@@ -285,6 +299,7 @@ def _download_folder(
             source=redact_link(url),
             error_code=error_code_for(e),
             error=str(e),
+            quota_resets_in_seconds=getattr(e, "time_left", None),
         )
         return False
     except Exception as e:
@@ -312,6 +327,7 @@ def _download_folder_file(
     file_filter=None,
     machine: MachineOutput | None = None,
     run_command: str | None = None,
+    quota_stops: list[str] | None = None,
 ) -> bool:
     machine = machine or MachineOutput(False)
     folder_dl = MegaFolderDownloader(downloader)
@@ -351,6 +367,7 @@ def _download_folder_file(
         machine.emit(event="result", type="download", status="skipped", source=redact_link(url))
         return True
     except MegaError as e:
+        _note_quota_stop(e, quota_stops, url)
         print_error(f"Download failed: {e}")
         machine.emit(
             event="result",
@@ -359,6 +376,7 @@ def _download_folder_file(
             source=redact_link(url),
             error_code=error_code_for(e),
             error=str(e),
+            quota_resets_in_seconds=getattr(e, "time_left", None),
         )
         return False
     except Exception as e:

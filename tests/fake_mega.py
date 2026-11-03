@@ -444,6 +444,7 @@ class FakeCdn:
         self.served: dict[str, int] = {}
         self.time_left = 20226
         self.burned: set[str] = set()
+        self.proxy_status: dict[str, int] = {}  # route -> the HTTP status that proxy answers
 
     def issue_url(self) -> str:
         """A fresh CDN URL, as the `a:g` resolver would hand out."""
@@ -463,6 +464,9 @@ class FakeCdn:
                 raise exc
         body = self.ciphertext[start : end + 1]
         closing = {"Content-Length": "0", "Connection": "close"}
+        if route in self.proxy_status:
+            record["status"] = self.proxy_status[route]
+            return _CdnResponse(self.proxy_status[route], closing)
         with self._lock:
             if url in self.burned:
                 record["status"] = 403

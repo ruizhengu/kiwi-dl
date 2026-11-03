@@ -104,6 +104,9 @@
   "megabasterd_cli.commands.download_cmd": [
     "download"
   ],
+  "megabasterd_cli.commands.download_support": [
+    "EXIT_QUOTA_EXCEEDED"
+  ],
   "megabasterd_cli.commands.file_ops_cmd": [
     "merge_cmd",
     "split_cmd",
@@ -171,11 +174,15 @@
     "Config.max_parallel_uploads",
     "Config.max_workers",
     "Config.megacrypter_server",
+    "Config.quota_budget_seconds",
     "Config.quota_max_wait_loops",
     "Config.quota_wait_seconds",
     "Config.run_command",
+    "Config.smart_proxy_ban_seconds",
     "Config.smart_proxy_enabled",
+    "Config.smart_proxy_mode",
     "Config.smart_proxy_url",
+    "Config.smart_proxy_window_seconds",
     "Config.speed_limit_kbps",
     "Config.streaming_host",
     "Config.streaming_port",
@@ -398,6 +405,7 @@
     "MegaDownloader.download_link",
     "MegaDownloader.stop",
     "MegaDownloader.stop_all",
+    "QUOTA_RECHECK_SECONDS",
     "URL_EXPIRY_STATUS"
   ],
   "megabasterd_cli.core.errors": [
@@ -735,6 +743,28 @@
     "TUNNEL_POLL_SECONDS",
     "check_destination"
   ],
+  "megabasterd_cli.proxy.quota_router": [
+    "ChunkRouter",
+    "ChunkRouter.proxy_failed",
+    "ChunkRouter.proxy_succeeded",
+    "ChunkRouter.route",
+    "MAX_WINDOW_SECONDS",
+    "MIN_WINDOW_SECONDS",
+    "ROUTE_CHECK_SECONDS",
+    "Route",
+    "Route.fallback",
+    "Route.proxies",
+    "Route.proxy",
+    "RouteAgain",
+    "SMART_PROXY_MODES",
+    "SmartProxyPolicy",
+    "SmartProxyPolicy.blocked",
+    "SmartProxyPolicy.budget_left",
+    "SmartProxyPolicy.close_window",
+    "SmartProxyPolicy.from_config",
+    "SmartProxyPolicy.open_window",
+    "SmartProxyPolicy.proxies_wanted"
+  ],
   "megabasterd_cli.proxy.runtime": [
     "ProxyPoolCorruptionError",
     "effective_pool",
@@ -760,6 +790,8 @@
     "SmartProxyPool.COOLDOWN_SECONDS",
     "SmartProxyPool.MAX_FAILURES",
     "SmartProxyPool.add",
+    "SmartProxyPool.ban",
+    "SmartProxyPool.is_usable",
     "SmartProxyPool.list",
     "SmartProxyPool.pick",
     "SmartProxyPool.remove",

@@ -325,8 +325,10 @@ download to replace the existing file in place.
 
 ### MEGA quota is exceeded
 
-The downloader waits according to `quota_wait_seconds` and retries up to
-`quota_max_wait_loops`. These values can be changed with `config set`.
+A chunk answered with HTTP 509 means this IP's transfer quota is spent, and the
+error says when it resets. With a proxy pool and `smart_proxy_enabled`, the
+download moves to the pool by itself; without one it stops at once (exit code
+3), or waits up to `quota_budget_seconds` if you set it.
 
 ### MAC verification fails
 

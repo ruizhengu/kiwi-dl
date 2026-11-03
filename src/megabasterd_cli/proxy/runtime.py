@@ -10,8 +10,8 @@ The active pool is the union of:
    fetch / import`).
 2. Comma- or whitespace-separated URLs from the `smart_proxy_url` config key.
 
-If both sources are empty, or `smart_proxy_enabled` is False, the helper
-returns None — callers should treat that as "no smart-proxy routing". A
+If both sources are empty, `smart_proxy_enabled` is False, or
+`smart_proxy_mode` is "off", the helper returns None — callers should treat that as "no smart-proxy routing". A
 malformed `proxies.json` raises ProxyPoolCorruptionError instead: "no routing"
 must be something the user chose, never something a broken file decided.
 """
@@ -111,7 +111,7 @@ def effective_pool(cfg: Config) -> SmartProxyPool | None:
     `smart_proxy_url`. Returns None if smart proxy is disabled OR the merged
     pool ends up empty.
     """
-    if not cfg.smart_proxy_enabled:
+    if not cfg.smart_proxy_enabled or cfg.smart_proxy_mode == "off":
         return None
     pool = _load_persisted_pool()
     for url in _urls_from_config(cfg):
