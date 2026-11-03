@@ -17,7 +17,12 @@ import requests
 
 from .chunks import Chunk, chunk_mac
 from .crypto import ctr_offset_to_counter, make_ctr_cipher
-from .errors import NonRetryableTransferError, RetryableTransferError, TransferError
+from .errors import (
+    NonRetryableTransferError,
+    RetryableTransferError,
+    TransferError,
+    TransferQuotaError,
+)
 from .range_validation import RangeNotHonoredError, validate_range_response
 from .state import TransferState, save_state, snapshot_state
 
@@ -25,8 +30,18 @@ log = logging.getLogger(__name__)
 
 
 # HTTP status codes that indicate the CDN URL has expired or is unusable
-# and should be re-fetched rather than retried as-is.
-URL_EXPIRY_STATUS = {403, 410, 509}
+# and should be re-fetched rather than retried as-is. 509 used to be here: it is
+# the exit IP's transfer quota, and a fresh URL is refused just the same.
+URL_EXPIRY_STATUS = {403, 410}
+
+# MEGA's storage answer when the exit IP's transfer quota is spent.
+QUOTA_EXCEEDED_STATUS = 509
+
+
+def quota_time_left(headers) -> int | None:
+    """Seconds until the quota resets, from `X-MEGA-Time-Left`, or None."""
+    raw = str(headers.get("X-MEGA-Time-Left") or "").strip()
+    return int(raw) if raw.isdecimal() else None
 
 
 class CdnUrlExpired(TransferError):  # noqa: N818 - internal retry sentinel name
@@ -71,6 +86,11 @@ def fetch_chunk(
                 raise CdnUrlExpired(
                     message=f"CDN URL expired (HTTP {resp.status_code}) for chunk {chunk.index}"
                 )
+            if resp.status_code == QUOTA_EXCEEDED_STATUS:
+                # The quota belongs to the route this request took, so a
+                # proxy that hits it is spent for now.
+                dl._selector.report_failure(picked_proxy)
+                raise TransferQuotaError(time_left=quota_time_left(resp.headers))
             if resp.status_code not in (200, 206):
                 dl._selector.report_failure(picked_proxy)
                 if resp.status_code >= 500:

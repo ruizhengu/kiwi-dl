@@ -91,6 +91,37 @@ class QuotaError(MegaError):
     """Quota exceeded."""
 
 
+def format_time_left(seconds: int) -> str:
+    """`20226` -> `"5h 37m"`, `90` -> `"1m 30s"`: a duration a person can read."""
+    hours, rest = divmod(max(0, seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {secs}s" if secs else f"{minutes}m"
+    return f"{secs}s"
+
+
+class TransferQuotaError(QuotaError):
+    """MEGA's storage refused a chunk with HTTP 509: this exit IP's transfer quota is spent.
+
+    Not URL expiry, which is how it used to be handled. Observed live (anonymous,
+    Nov 2026): 509 "Bandwidth Limit Exceeded", empty body, `X-MEGA-Time-Left`
+    counting down the seconds to the reset; a fresh URL from the API is refused
+    the same way at once, so refreshing and retrying only spends minutes.
+
+    `time_left` is that header as an int, or None when it was absent or unusable.
+    """
+
+    def __init__(self, time_left: int | None = None, message: str | None = None):
+        self.time_left = time_left
+        if message is None:
+            message = "MEGA transfer quota exceeded (HTTP 509)"
+            if time_left is not None:
+                message += f"; it resets in about {format_time_left(time_left)}"
+        super().__init__(message=message)
+
+
 class RateLimitError(MegaError):
     """Rate limited; retry with backoff."""
 

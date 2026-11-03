@@ -183,6 +183,7 @@ def _download_file(
             source=redact_link(url),
             error_code=error_code_for(e),
             error=str(e),
+            quota_resets_in_seconds=getattr(e, "time_left", None),
         )
         return False
     except Exception as e:
