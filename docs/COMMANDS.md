@@ -132,7 +132,7 @@ the fly, and serves media players through normal HTTP Range requests.
 
 | Option | Purpose |
 | --- | --- |
-| `-p`, `--port N` | Local HTTP port. |
+| `-p`, `--port N` | Local HTTP port; `0` picks any free port (the banner prints which). Defaults to `streaming_port`. |
 | `-H`, `--host HOST` | Bind address. Defaults to loopback. |
 | `--token TEXT` | Require this access token (sent as `Authorization: Bearer`). Auto-generated when binding a non-loopback host so the stream is never exposed unauthenticated. |
 | `--allow-query-token` | Also accept the token via `?token=` (insecure: it can leak into logs/history). Off by default. |

@@ -38,7 +38,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
+    # <9.2: pytest 9.2 derives Node.nodeid from a structured id, so the
+    # `item._nodeid` write that pytest-xdist (3.8.0) uses to tag xdist_group
+    # members has no effect - `--dist loadgroup` quietly degrades to `load`
+    # and the xdist_group marks in tests/ (sdist_build, launcher_subprocess)
+    # split across workers. Lift this once pytest-xdist supports the new ids.
+    "pytest>=7.4.0,<9.2",
     "pytest-cov>=4.1.0",
     "pytest-xdist>=3.5.0",
     # Required by tests/test_sdist_packaging.py. Without it that test used to
