@@ -12,13 +12,16 @@ regression FAILS instead of hanging CI.
 from __future__ import annotations
 
 import http.client
+import socket
 import time
 
 from megabasterd_cli.streaming.server import StreamingServer
-from tests.test_streaming_hardening import HARD_TIMEOUT, _addr, _half_open, _start, _status
+from tests.test_streaming_hardening import HARD_TIMEOUT, _addr, _half_open, _status
+from tests.test_streaming_hardening import _start as _start_server
 
-# A second loopback source address. The whole 127.0.0.0/8 is loopback on both
-# Linux and Windows, so this is a genuinely different peer to the server.
+# The address a second, different peer is reported under. It is a label, not a
+# real source address: Linux routes the whole 127.0.0.0/8 to loopback, but macOS
+# only configures 127.0.0.1, so binding 127.0.0.2 there fails with EADDRNOTAVAIL.
 OTHER_IP = "127.0.0.2"
 
 # Phase timings. The rule learned from a previous CI failure in this area: an
@@ -29,10 +32,38 @@ SETTLE = 0.5
 HOLD_BUDGET = 5.0
 
 
+def _start(**kwargs) -> StreamingServer:
+    """`_start`, with a hook for reporting chosen connections under another address.
+
+    The per-client cap keys on `client_address[0]` and nothing else, so changing
+    that one value where the server accepts the connection is a different peer
+    as far as the code under test can tell - over real sockets, on every OS.
+    """
+    server = _start_server(**kwargs)
+    server.relabel = {}  # local port -> address to report it under
+    accept = server.get_request
+
+    def get_request():
+        request, client_address = accept()
+        ip = server.relabel.get(client_address[1])
+        return request, (ip, client_address[1]) if ip else client_address
+
+    server.get_request = get_request
+    return server
+
+
 def _status_from(server: StreamingServer, ip: str, method: str = "HEAD") -> int:
-    """`_status`, but dialed from a specific local address."""
+    """`_status`, but seen by the server as coming from `ip`."""
     host, port = _addr(server)
-    conn = http.client.HTTPConnection(host, port, timeout=HARD_TIMEOUT, source_address=(ip, 0))
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(HARD_TIMEOUT)
+    # Bound before connecting, so the label is in place before the server can
+    # accept the connection.
+    sock.bind((host, 0))
+    server.relabel[sock.getsockname()[1]] = ip
+    sock.connect((host, port))
+    conn = http.client.HTTPConnection(host, port, timeout=HARD_TIMEOUT)
+    conn.sock = sock  # http.client only dials when it has no socket yet
     try:
         conn.request(method, "/")
         return conn.getresponse().status

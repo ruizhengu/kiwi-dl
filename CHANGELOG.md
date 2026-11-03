@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- **macOS is now a tested platform, and Windows is not.** CI runs the full suite on `macos-latest` (Apple Silicon) and Ubuntu, on Python 3.10 through 3.14, plus a smoke test of the installed `mb` command. Four tests could not pass on a Mac and are fixed without changing what they check: three per-client streaming-cap tests needed a second loopback address, which macOS does not configure (only `127.0.0.1` exists there), so the second peer is now reported to the server under another address instead of dialled from one; and the secure-log test that simulates a failing `os.fstat` replaced it process-wide, which also broke pytest's own output capture, so the failure is now injected only into `secure_log`.
 - **Stored account credentials must be re-added.** The account vault now records the scrypt cost inside each encrypted credential instead of assuming a constant, which is what makes the cost raisable at all - and it is raised from 2**14 to 2**15. Credentials written by earlier versions are not read: `mb account remove` then `mb account add` restores them in seconds, and opening one reports the old format explicitly rather than claiming a wrong passphrase. The cipher is unchanged (AES-256-GCM), and the KDF parameters read out of the vault file are range-checked, so a hand-edited file cannot force an unbounded scrypt cost.
 
 ### Added
