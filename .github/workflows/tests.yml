@@ -47,3 +47,44 @@ jobs:
           mg-dl --version
           kiwi-dl --help
           python -m kiwi_dl --help
+
+  # install.sh the way a user runs it, with each installer it supports: uv on
+  # macOS, pipx on Ubuntu. The source is this checkout, so the job installs the
+  # code under review rather than main.
+  installer:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            installer: uv
+          - os: ubuntu-latest
+            installer: pipx
+    steps:
+      - uses: actions/checkout@v7
+
+      - if: matrix.installer == 'uv'
+        uses: astral-sh/setup-uv@v6
+
+      - if: matrix.os == 'ubuntu-latest'
+        name: Lint install.sh
+        run: shellcheck install.sh
+
+      - name: Install with install.sh
+        env:
+          KIWI_DL_SOURCE: ${{ github.workspace }}
+          KIWI_DL_INSTALLER: ${{ matrix.installer }}
+        run: bash install.sh
+
+      - name: Use, update and remove the installed tool
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          kiwi-dl --version
+          mg-dl --help > /dev/null
+          kiwi-dl update --dry-run
+          kiwi-dl completion zsh > /dev/null
+          kiwi-dl remove --purge --yes
+          hash -r
+          if command -v kiwi-dl; then echo "kiwi-dl is still installed"; exit 1; fi
