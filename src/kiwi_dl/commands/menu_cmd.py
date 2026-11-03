@@ -41,13 +41,20 @@ MAIN = [
 
 
 def run_child(args: Sequence[str], env: dict[str, str] | None = None) -> int:
-    """`python -m kiwi_dl <args>` on this terminal; returns its exit status."""
+    """`python -m kiwi_dl <args>` on this terminal; returns its exit status.
+
+    A Ctrl-C reaches the child and this process alike. The child handles it -
+    stops its transfers and keeps what finished - so here it only means "keep
+    waiting". `subprocess.call` would instead SIGKILL the child on that same
+    KeyboardInterrupt, cutting the download off mid-write.
+    """
     child_env = {**os.environ, **env} if env else None
-    try:
-        return subprocess.call([sys.executable, "-m", "kiwi_dl", *args], env=child_env)
-    except KeyboardInterrupt:
-        # The child got the same Ctrl-C and stopped its transfer; we just go back.
-        return 130
+    child = subprocess.Popen([sys.executable, "-m", "kiwi_dl", *args], env=child_env)
+    while True:
+        try:
+            return child.wait()
+        except KeyboardInterrupt:
+            continue
 
 
 def default_destination(cfg) -> Path:

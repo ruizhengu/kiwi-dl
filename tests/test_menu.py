@@ -208,19 +208,50 @@ def test_the_menu_suggests_downloads_not_the_current_directory(monkeypatch, tmp_
     assert menu_cmd.default_destination(Cfg()) == tmp_path / "elsewhere"
 
 
+class _FakeChild:
+    """A child process whose wait() first sees the user's Ctrl-C, then exits."""
+
+    def __init__(self, argv, env=None, interrupts: int = 0, status: int = 0):
+        self.argv, self.env = argv, env
+        self.interrupts, self.status = interrupts, status
+        self.killed = False
+
+    def wait(self):
+        if self.interrupts:
+            self.interrupts -= 1
+            raise KeyboardInterrupt
+        return self.status
+
+    def kill(self):
+        self.killed = True
+
+
 def test_run_child_passes_the_password_in_the_environment(monkeypatch):
-    seen = {}
-
-    def fake_call(argv, env=None):
-        seen.update(argv=argv, env=env)
-        return 0
-
-    monkeypatch.setattr(menu_cmd.subprocess, "call", fake_call)
+    children = []
+    monkeypatch.setattr(
+        menu_cmd.subprocess,
+        "Popen",
+        lambda argv, env=None: children.append(_FakeChild(argv, env)) or children[-1],
+    )
     menu_cmd.run_child(["download", FILE_LINK], {"KIWI_DL_PASSWORD": "pw"})
-    assert seen["argv"][1:3] == ["-m", "kiwi_dl"]
-    assert "pw" not in seen["argv"]
-    assert seen["env"]["KIWI_DL_PASSWORD"] == "pw"
-    assert "PATH" in seen["env"]  # the rest of the environment is kept
+    (child,) = children
+    assert child.argv[1:3] == ["-m", "kiwi_dl"]
+    assert "pw" not in child.argv
+    assert child.env["KIWI_DL_PASSWORD"] == "pw"
+    assert "PATH" in child.env  # the rest of the environment is kept
+
+
+def test_ctrl_c_waits_for_the_download_to_stop_instead_of_killing_it(monkeypatch):
+    """The child gets the same Ctrl-C and stops cleanly; SIGKILL would cut it off."""
+    children = []
+
+    def popen(argv, env=None):
+        children.append(_FakeChild(argv, env, interrupts=2, status=130))
+        return children[-1]
+
+    monkeypatch.setattr(menu_cmd.subprocess, "Popen", popen)
+    assert menu_cmd.run_child(["download", FILE_LINK]) == 130
+    assert children[0].killed is False
 
 
 # --------------------------------------------------------------------------
