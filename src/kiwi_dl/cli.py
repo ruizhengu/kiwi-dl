@@ -58,7 +58,7 @@ def _redacted_argv(argv: list[str]) -> list[str]:
 def _startup_args_for_log() -> list[str]:
     """Return process args only when this process looks like the CLI itself."""
     argv0 = str(sys.argv[0]).replace("\\", "/").rsplit("/", 1)[-1].lower()
-    cli_names = {"kiwi-dl", "kiwi-dl.exe", "mg-dl", "mg-dl.exe", "__main__.py"}
+    cli_names = {"kiwi-dl", "mg-dl", "__main__.py"}
     if argv0 in cli_names:
         return _redacted_argv(sys.argv[1:])
     return []
@@ -142,13 +142,27 @@ def _global_options(fn):
 
 @click.group(
     context_settings=_CONTEXT,
-    help="kiwi-dl - download public MEGA links. Not affiliated with Mega Limited.",
+    invoke_without_command=True,
+    help="kiwi-dl - download public MEGA links. Not affiliated with Mega Limited.\n\n"
+    "Run it with no command for the interactive menu.",
 )
 @_global_options
 @click.pass_context
 def cli(ctx: click.Context, verbose: int, quiet: bool, log_file: bool | None) -> None:
     """Top-level CLI group."""
-    _bootstrap(ctx, verbose, quiet, log_file, ctx.invoked_subcommand)
+    _bootstrap(ctx, verbose, quiet, log_file, ctx.invoked_subcommand or "menu")
+    if ctx.invoked_subcommand is None:
+        if _interactive():
+            from .commands import menu_cmd
+
+            ctx.exit(menu_cmd.run_menu())
+        click.echo(ctx.get_help())
+
+
+def _interactive() -> bool:
+    """The menu needs a person at a terminal; a script or a pipe gets the help
+    text instead of a prompt nobody will answer."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
 
 
 def _bootstrap(
@@ -308,7 +322,7 @@ def _run(command: click.Command, prog_name: str) -> int:
         command(prog_name=prog_name)
         return 0
     except KeyboardInterrupt:
-        console.print("\n[yellow]Interrupted by user.[/yellow]")
+        console.print(Text("\n◎ Interrupted by user.", style="kiwi.muted"))
         return 130
     except SystemExit as exc:
         # Click's standalone mode catches KeyboardInterrupt itself, prints
@@ -319,7 +333,7 @@ def _run(command: click.Command, prog_name: str) -> int:
     except Exception as e:
         logging.getLogger(__name__).exception("Fatal error: %s", e)
         # `e` may carry server-supplied text; render it literally, not as markup.
-        console.print(Text.assemble(("Error:", "bold red"), " ", str(e)))
+        console.print(Text.assemble(("✗ Error:", "kiwi.error"), " ", str(e)))
         return 1
     finally:
         if previous is not None:

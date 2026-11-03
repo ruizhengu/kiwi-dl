@@ -96,7 +96,8 @@ def _read_links_file(path: Path) -> list[str]:
     "-p",
     "--password",
     default=None,
-    help="Password for password-protected links.",
+    envvar="KIWI_DL_PASSWORD",
+    help="Password for password-protected links (or set KIWI_DL_PASSWORD).",
 )
 @click.option(
     "--no-verify",
