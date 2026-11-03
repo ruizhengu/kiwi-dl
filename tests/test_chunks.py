@@ -1,6 +1,6 @@
 """Tests for chunking and per-chunk MACs."""
 
-from megabasterd_cli.core.chunks import (
+from kiwi_dl.core.chunks import (
     chunk_count,
     chunk_mac,
     combine_chunk_macs,

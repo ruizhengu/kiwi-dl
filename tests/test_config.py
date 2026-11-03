@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.config import (
+from kiwi_dl.config import (
     ConfigStore,
     config_file,
     data_dir,
@@ -29,7 +29,7 @@ def test_new_config_defaults_to_project_output(monkeypatch, tmp_path: Path):
 def test_user_paths_use_project_user_dir(monkeypatch, tmp_path: Path):
     project_root = tmp_path / "project"
     monkeypatch.setenv("MEGABASTERD_PROJECT_ROOT", str(project_root))
-    monkeypatch.delenv("MEGABASTERD_USER_DIR", raising=False)
+    monkeypatch.delenv("KIWI_DL_HOME", raising=False)
 
     assert user_dir() == project_root / "User"
     assert config_file() == project_root / "User" / "Config" / "config.json"
@@ -38,7 +38,7 @@ def test_user_paths_use_project_user_dir(monkeypatch, tmp_path: Path):
 
 def test_user_dir_env_override(monkeypatch, tmp_path: Path):
     user_root = tmp_path / "custom-user"
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(user_root))
+    monkeypatch.setenv("KIWI_DL_HOME", str(user_root))
 
     assert user_dir() == user_root
 

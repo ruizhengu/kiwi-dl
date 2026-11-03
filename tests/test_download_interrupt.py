@@ -22,9 +22,9 @@ import click
 import pytest
 import requests
 
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import TransferCancelled
-from megabasterd_cli.core.state import load_state
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import TransferCancelled
+from kiwi_dl.core.state import load_state
 from tests.fake_mega import FakeCdn
 
 KiB = 1024
@@ -153,7 +153,7 @@ def test_stop_all_stops_every_download_in_the_process(tmp_path, monkeypatch):
 def test_ctrl_c_exits_130_after_stopping_the_downloads(monkeypatch):
     """Click turns KeyboardInterrupt into "Aborted!" and exit 1 on its own;
     the documented code for Ctrl-C is 130."""
-    from megabasterd_cli import cli as cli_module
+    from kiwi_dl import cli as cli_module
 
     stopped: list[bool] = []
     monkeypatch.setattr(MegaDownloader, "stop_all", classmethod(lambda cls: stopped.append(True)))
@@ -173,7 +173,7 @@ def test_ctrl_c_exits_130_after_stopping_the_downloads(monkeypatch):
 
 
 def test_a_plain_failure_still_exits_1(monkeypatch):
-    from megabasterd_cli import cli as cli_module
+    from kiwi_dl import cli as cli_module
 
     @click.command()
     def failing():

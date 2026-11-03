@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from megabasterd_cli.config import config_file, data_dir, user_dir
+from kiwi_dl.config import config_file, data_dir, user_dir
 
 
 def _repo_user_dir() -> Path:
@@ -31,7 +31,7 @@ def _repo_user_dir() -> Path:
 
 
 def test_the_user_dir_env_var_is_always_set_during_a_test():
-    value = os.environ.get("MEGABASTERD_USER_DIR")
+    value = os.environ.get("KIWI_DL_HOME")
     assert value, "the autouse isolation fixture in conftest.py is not active"
     assert _repo_user_dir() not in Path(value).resolve().parents
     assert Path(value).resolve() != _repo_user_dir()

@@ -19,7 +19,7 @@ import os
 import threading
 import time
 
-from megabasterd_cli.core.crypto import (
+from kiwi_dl.core.crypto import (
     aes_key_wrap_encrypt,
     b64_url_encode,
     bytes_to_a32,
@@ -105,7 +105,7 @@ def share_listing(
 
 def attrs_of(blob_b64: str, key: bytes) -> dict | None:
     """Decrypt an attribute blob the way MEGA's own reader would."""
-    from megabasterd_cli.core.crypto import b64_url_decode, decrypt_attributes
+    from kiwi_dl.core.crypto import b64_url_decode, decrypt_attributes
 
     return decrypt_attributes(b64_url_decode(blob_b64), key)
 
@@ -168,7 +168,7 @@ class FakeCdn:
     def __init__(self, size: int = 3 * 1024 * 1024, block_delay: float = 0.0):
         from Crypto.Cipher import AES
 
-        from megabasterd_cli.core.chunks import (
+        from kiwi_dl.core.chunks import (
             chunk_mac,
             combine_chunk_macs,
             condense_mac,

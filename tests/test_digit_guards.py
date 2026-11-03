@@ -31,8 +31,8 @@ from __future__ import annotations
 
 import pytest
 
-from megabasterd_cli.core.api import MAX_RESPONSE_BYTES, _parse_body
-from megabasterd_cli.core.errors import MegaError
+from kiwi_dl.core.api import MAX_RESPONSE_BYTES, _parse_body
+from kiwi_dl.core.errors import MegaError
 
 # U+00B2 SUPERSCRIPT TWO: isdigit() True, isdecimal() False, int() raises.
 SUPERSCRIPT = "²"

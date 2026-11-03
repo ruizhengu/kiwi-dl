@@ -18,10 +18,10 @@ import os
 
 import pytest
 
-from megabasterd_cli.core import download_source as ds
-from megabasterd_cli.core.crypto import b64_url_encode
-from megabasterd_cli.core.errors import MegaError
-from megabasterd_cli.core.links import parse_link
+from kiwi_dl.core import download_source as ds
+from kiwi_dl.core.crypto import b64_url_encode
+from kiwi_dl.core.errors import MegaError
+from kiwi_dl.core.links import parse_link
 
 # Twelve call sites decode a link key and all of them pass through
 # `require_link_key` first, so that is where the length check lives - it raises
@@ -120,7 +120,7 @@ def test_truncated_folder_link_key_is_rejected():
 def test_a_link_key_with_non_urlsafe_characters_is_rejected(junk_key):
     """`parse_link` captures these into the key (standard base64 `+/=` it
     rejects itself), so `require_link_key` is the gate that must refuse them."""
-    from megabasterd_cli.core.links import require_link_key
+    from kiwi_dl.core.links import require_link_key
 
     good = b64_url_encode(os.urandom(32))
     key = junk_key.format(good=good, good_head=good[:10], good_tail=good[10:])
@@ -130,7 +130,7 @@ def test_a_link_key_with_non_urlsafe_characters_is_rejected(junk_key):
 
 
 def test_a_clean_url_safe_key_still_passes():
-    from megabasterd_cli.core.links import require_link_key
+    from kiwi_dl.core.links import require_link_key
 
     good = b64_url_encode(os.urandom(32))  # only [A-Za-z0-9_-]
     parsed = parse_link(f"https://mega.nz/file/AAAAAAAA#{good}")

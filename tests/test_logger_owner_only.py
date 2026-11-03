@@ -13,7 +13,7 @@ import subprocess
 
 import pytest
 
-from megabasterd_cli.utils.logger import setup_logging
+from kiwi_dl.utils.logger import setup_logging
 
 
 @pytest.fixture

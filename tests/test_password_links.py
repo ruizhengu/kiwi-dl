@@ -4,11 +4,11 @@ import os
 
 import pytest
 
-from megabasterd_cli.core.crypto import (
+from kiwi_dl.core.crypto import (
     decrypt_password_link,
     encrypt_password_link,
 )
-from megabasterd_cli.core.links import LinkType, parse_link, resolve_password_link
+from kiwi_dl.core.links import LinkType, parse_link, resolve_password_link
 
 
 def test_password_link_roundtrip_file():
@@ -60,6 +60,6 @@ def test_password_link_resolve_to_normal():
     resolved = resolve_password_link(parsed, password)
     assert resolved.type == LinkType.FILE
     # public_id should base64-decode back to the original public_handle
-    from megabasterd_cli.core.crypto import b64_url_decode
+    from kiwi_dl.core.crypto import b64_url_decode
 
     assert b64_url_decode(resolved.public_id) == public_handle

@@ -4,14 +4,15 @@ import sys
 
 from click.testing import CliRunner
 
-from megabasterd_cli.cli import _redacted_argv, _startup_args_for_log, cli
+from kiwi_dl.cli import _redacted_argv, _startup_args_for_log, cli
 
 
 def test_cli_help_runs():
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
-    assert "MegaBasterd CLI" in result.output
+    assert "kiwi-dl" in result.output
+    assert "Not affiliated with Mega Limited" in result.output
 
 
 def test_cli_version():
@@ -72,10 +73,82 @@ def test_startup_args_handles_python_module_entrypoint(monkeypatch):
         sys,
         "argv",
         [
-            r"C:\project\src\megabasterd_cli\__main__.py",
+            r"C:\project\src\kiwi_dl\__main__.py",
             "download",
             "https://mega.nz/file/ABC#SECRET",
         ],
     )
 
     assert _startup_args_for_log() == ["download", "<redacted-link>"]
+
+
+# ---------------------------------------------------------------------------
+# `mg-dl URL` is `kiwi-dl download URL`
+# ---------------------------------------------------------------------------
+
+
+def _record_downloads(monkeypatch, tmp_path):
+    from kiwi_dl.core.downloader import DownloadResult, MegaDownloader
+
+    calls: list[tuple[str, str]] = []
+
+    def fake(self, url, output_dir, **kwargs):
+        calls.append((url, str(output_dir)))
+        path = tmp_path / "file.bin"
+        path.write_bytes(b"x")
+        return DownloadResult(path=path, size=1, elapsed_seconds=0.1, integrity_ok=True)
+
+    monkeypatch.setattr(MegaDownloader, "download_link", fake)
+    return calls
+
+
+def test_mg_dl_downloads_a_link_into_the_output_dir(monkeypatch, tmp_path):
+    from kiwi_dl.cli import mg_dl
+
+    calls = _record_downloads(monkeypatch, tmp_path)
+    out = tmp_path / "out"
+    result = CliRunner().invoke(mg_dl, ["https://mega.nz/file/abc123#xyz", "-o", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("https://mega.nz/file/abc123#xyz", str(out))]
+
+
+def test_mg_dl_takes_the_global_flags_anywhere(monkeypatch, tmp_path):
+    from kiwi_dl.cli import mg_dl
+
+    calls = _record_downloads(monkeypatch, tmp_path)
+    result = CliRunner().invoke(
+        mg_dl, ["https://mega.nz/file/abc123#xyz", "-q", "-o", str(tmp_path), "-v"]
+    )
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+
+
+def test_mg_dl_without_a_link_is_a_usage_error():
+    from kiwi_dl.cli import mg_dl
+
+    result = CliRunner().invoke(mg_dl, [])
+    assert result.exit_code == 2
+    assert "No URLs given" in result.output
+
+
+def test_mg_dl_reports_a_quota_stop_with_exit_code_3(monkeypatch, tmp_path):
+    from kiwi_dl.cli import mg_dl
+    from kiwi_dl.core.downloader import MegaDownloader
+    from kiwi_dl.core.errors import TransferQuotaError
+
+    def over_quota(self, url, output_dir, **kwargs):
+        raise TransferQuotaError(time_left=60)
+
+    monkeypatch.setattr(MegaDownloader, "download_link", over_quota)
+    result = CliRunner().invoke(mg_dl, ["https://mega.nz/file/abc123#xyz", "-o", str(tmp_path)])
+    assert result.exit_code == 3
+
+
+def test_mg_dl_help_and_version():
+    from kiwi_dl.cli import mg_dl
+
+    help_text = CliRunner().invoke(mg_dl, ["--help"]).output
+    assert "Usage: mg-dl" in help_text and "--output" in help_text
+    assert "Not affiliated with Mega Limited" in help_text
+    assert "0.1.0" in CliRunner().invoke(mg_dl, ["--version"]).output

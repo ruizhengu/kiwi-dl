@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from megabasterd_cli.core.state import (
+from kiwi_dl.core.state import (
     STATE_FORMAT_VERSION,
     TransferState,
     clear_state,

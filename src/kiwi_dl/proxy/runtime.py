@@ -6,7 +6,7 @@ sibling for the download/stream paths that also accept a manual `--proxy`).
 
 The active pool is the union of:
 
-1. The persisted pool in `<data_dir>/proxies.json` (managed by `mb proxy add /
+1. The persisted pool in `<data_dir>/proxies.json` (managed by `kiwi-dl proxy add /
    fetch / import`).
 2. Comma- or whitespace-separated URLs from the `smart_proxy_url` config key.
 
@@ -58,7 +58,7 @@ def _corrupt(path: Path, reason: str, raw: bytes | None) -> ProxyPoolCorruptionE
         hint = "A backup could NOT be written; "
     return ProxyPoolCorruptionError(
         f"The proxy pool file {path.name} is corrupt and was left untouched: {reason}. "
-        f"{hint}move the file aside, then re-add proxies with `mb proxy add`."
+        f"{hint}move the file aside, then re-add proxies with `kiwi-dl proxy add`."
     )
 
 
@@ -128,7 +128,7 @@ def effective_pool_for_cmd(
     """Same as `effective_pool` but skipped when the user passed `--proxy`.
 
     Use this in commands where a manual --proxy flag should take precedence
-    over the auto-rotating pool (`mb download --proxy ...`).
+    over the auto-rotating pool (`kiwi-dl download --proxy ...`).
     """
     if explicit_proxy:
         return None

@@ -15,9 +15,9 @@ import time
 
 import pytest
 
-import megabasterd_cli.ui.progress as progress_module
-from megabasterd_cli.ui.progress import MultiFileProgressView
-from megabasterd_cli.ui.transfer_progress import TransferProgress, redact_link
+import kiwi_dl.ui.progress as progress_module
+from kiwi_dl.ui.progress import MultiFileProgressView
+from kiwi_dl.ui.transfer_progress import TransferProgress, redact_link
 
 
 class _NoOpLive:

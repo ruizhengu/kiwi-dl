@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from megabasterd_cli.core.errors import TransferError
-from megabasterd_cli.core.range_validation import (
+from kiwi_dl.core.errors import TransferError
+from kiwi_dl.core.range_validation import (
     RangeNotHonoredError,
     validate_range_response,
 )
@@ -30,7 +30,7 @@ def _no_retry_backoff(monkeypatch):
     """
     from tenacity import wait_none
 
-    from megabasterd_cli.core import downloader as dl
+    from kiwi_dl.core import downloader as dl
 
     for attribute in ("_download_chunk",):
         target = getattr(dl.MegaDownloader, attribute, None)
@@ -64,13 +64,13 @@ class _Resp:
 
 def _chunk_request(monkeypatch, response, offset=1024, size=1024):
     """Drive the real `_download_chunk` against one crafted response."""
-    from megabasterd_cli.core.chunks import Chunk
-    from megabasterd_cli.core.downloader import MegaDownloader
-    from megabasterd_cli.core.state import TransferState
+    from kiwi_dl.core.chunks import Chunk
+    from kiwi_dl.core.downloader import MegaDownloader
+    from kiwi_dl.core.state import TransferState
 
     downloader = MegaDownloader(api=None, verify_integrity=False, max_workers=1)
     downloader._cdn_url = "https://cdn.invalid/file"
-    monkeypatch.setattr("megabasterd_cli.core.downloader.requests.get", lambda *a, **kw: response)
+    monkeypatch.setattr("kiwi_dl.core.downloader.requests.get", lambda *a, **kw: response)
     state = TransferState(
         transfer_type="download",
         source="https://mega.nz/file/ID#<key>",
@@ -171,7 +171,7 @@ def test_downloader_rejects_a_206_without_content_range(monkeypatch):
 
 def test_the_rejection_is_not_a_retryable_cdn_expiry(monkeypatch):
     """A protocol violation must not be retried against the same server."""
-    from megabasterd_cli.core.downloader import CdnUrlExpired
+    from kiwi_dl.core.downloader import CdnUrlExpired
 
     response = _Resp(200, {"Content-Length": str(TOTAL)}, b"\x00" * 4096)
     downloader, chunk, state = _chunk_request(monkeypatch, response)

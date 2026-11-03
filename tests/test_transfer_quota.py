@@ -17,12 +17,12 @@ import json
 import pytest
 from click.testing import CliRunner
 
-from megabasterd_cli.cli import cli
-from megabasterd_cli.core.download_transport import URL_EXPIRY_STATUS, quota_time_left
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import QuotaError, TransferQuotaError, format_time_left
-from megabasterd_cli.core.state import load_state
-from megabasterd_cli.ui.machine_output import error_code_for
+from kiwi_dl.cli import cli
+from kiwi_dl.core.download_transport import URL_EXPIRY_STATUS, quota_time_left
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import QuotaError, TransferQuotaError, format_time_left
+from kiwi_dl.core.state import load_state
+from kiwi_dl.ui.machine_output import error_code_for
 from tests.fake_mega import FakeCdn
 
 KiB = 1024
@@ -110,8 +110,8 @@ def test_format_time_left(seconds, text):
 
 
 def test_the_json_record_names_the_quota_and_its_reset_time(tmp_path, monkeypatch):
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "logs"))
 
     def over_quota(self, url, output_dir, **kwargs):
         raise TransferQuotaError(time_left=1800)

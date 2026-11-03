@@ -20,8 +20,8 @@ import os
 
 import pytest
 
-from megabasterd_cli.core.chunks import chunk_mac, combine_chunk_macs, condense_mac, iter_chunks
-from megabasterd_cli.core.download_verify import _verify_file_on_disk
+from kiwi_dl.core.chunks import chunk_mac, combine_chunk_macs, condense_mac, iter_chunks
+from kiwi_dl.core.download_verify import _verify_file_on_disk
 
 AES_KEY = bytes(range(16))
 NONCE = bytes(range(8))
@@ -96,8 +96,8 @@ def test_public_verify_file_integrity_keeps_its_1x_signature(tmp_path):
     """The 1.x public entry point takes `(state, all_chunks, aes_key, mac_iv)`
     and pulls the nonce and destination out of the state. It must stay callable
     that way AND now check the bytes on disk."""
-    from megabasterd_cli.core.download_verify import verify_file_integrity
-    from megabasterd_cli.core.state import TransferState
+    from kiwi_dl.core.download_verify import verify_file_integrity
+    from kiwi_dl.core.state import TransferState
 
     plaintext = bytes((i * 37) % 256 for i in range(300_000))
     dest = tmp_path / "movie.bin"
@@ -121,8 +121,8 @@ def test_public_verify_file_integrity_keeps_its_1x_signature(tmp_path):
 
 
 def test_public_verify_file_integrity_fails_closed_without_a_nonce(tmp_path):
-    from megabasterd_cli.core.download_verify import verify_file_integrity
-    from megabasterd_cli.core.state import TransferState
+    from kiwi_dl.core.download_verify import verify_file_integrity
+    from kiwi_dl.core.state import TransferState
 
     dest = tmp_path / "movie.bin"
     dest.write_bytes(b"\x00" * 1024)
@@ -144,8 +144,8 @@ def test_public_verify_file_integrity_fails_closed_on_a_wrong_length_nonce(tmp_p
     bytes would explode inside the crypto for a non-empty file - the case
     `bytes.fromhex` cannot catch and the docstring promises to fail closed on.
     """
-    from megabasterd_cli.core.download_verify import verify_file_integrity
-    from megabasterd_cli.core.state import TransferState
+    from kiwi_dl.core.download_verify import verify_file_integrity
+    from kiwi_dl.core.state import TransferState
 
     dest = tmp_path / "movie.bin"
     dest.write_bytes(b"\x00" * 300_000)  # non-empty: an 8-byte IV is actually used
@@ -167,8 +167,8 @@ def test_public_verify_file_integrity_fails_closed_on_a_wrong_length_nonce(tmp_p
 def _run_download_writing(monkeypatch, tmp_path, plaintext, *, corrupt):
     """Drive a real `_run_download` whose chunk fetch writes `plaintext` to the
     preallocated destination (optionally corrupting one byte), verify on."""
-    from megabasterd_cli.core.downloader import MegaDownloader
-    from megabasterd_cli.core.errors import IntegrityError
+    from kiwi_dl.core.downloader import MegaDownloader
+    from kiwi_dl.core.errors import IntegrityError
 
     dest = tmp_path / "movie.bin"
     downloader = MegaDownloader(api=None, verify_integrity=True, max_workers=1, auto_resume=False)

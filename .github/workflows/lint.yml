@@ -49,4 +49,4 @@ jobs:
           python -m mypy --version
           python -m pip show types-requests | head -2
       - name: Type check (required, whole production tree)
-        run: mypy src/megabasterd_cli --ignore-missing-imports
+        run: mypy src/kiwi_dl --ignore-missing-imports

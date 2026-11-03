@@ -12,9 +12,9 @@ import json
 
 import pytest
 
-from megabasterd_cli.core import api as api_module
-from megabasterd_cli.core.api import MegaAPIClient
-from megabasterd_cli.core.errors import MegaError
+from kiwi_dl.core import api as api_module
+from kiwi_dl.core.api import MegaAPIClient
+from kiwi_dl.core.errors import MegaError
 
 CAP = 4096
 CHUNK = 1024

@@ -116,7 +116,7 @@ def _check_nonce(nonce_bytes: bytes, token_repeated: bytes, threshold: int) -> b
 
 def _native_solver_commands() -> list[list[str]]:
     """Return native solver commands in preference order."""
-    if os.environ.get("MEGABASTERD_HASHCASH_NATIVE", "").lower() in {
+    if os.environ.get("KIWI_DL_HASHCASH_NATIVE", "").lower() in {
         "0",
         "false",
         "n",
@@ -127,7 +127,7 @@ def _native_solver_commands() -> list[list[str]]:
 
     # An external solver is opt-in: the pure-Python search below is always
     # available, and nothing is looked up on disk unless the user names it.
-    env_solver = os.environ.get("MEGABASTERD_HASHCASH_SOLVER")
+    env_solver = os.environ.get("KIWI_DL_HASHCASH_SOLVER")
     if not env_solver:
         return []
     candidate = Path(env_solver).expanduser()

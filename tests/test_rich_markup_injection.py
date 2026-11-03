@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from megabasterd_cli.ui import prompts
-from megabasterd_cli.ui.theme import make_console
+from kiwi_dl.ui import prompts
+from kiwi_dl.ui.theme import make_console
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def test_error_text_with_lone_bracket_does_not_raise(wide_console):
 
 
 def test_untrusted_table_cell_via_safe_table(wide_console):
-    from megabasterd_cli.ui.theme import SafeTable
+    from kiwi_dl.ui.theme import SafeTable
 
     table = SafeTable(show_header=False)
     table.add_column("Field")

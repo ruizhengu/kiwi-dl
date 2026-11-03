@@ -1,4 +1,4 @@
-"""Allow running as `python -m megabasterd_cli`."""
+"""Allow running as `python -m kiwi_dl`."""
 
 from .cli import main
 

@@ -16,10 +16,10 @@ from __future__ import annotations
 import pytest
 from click.testing import CliRunner
 
-from megabasterd_cli.cli import cli
-from megabasterd_cli.commands import config_cmd as config_module
-from megabasterd_cli.commands import proxy_cmd as proxy_module
-from megabasterd_cli.ui.theme import make_console
+from kiwi_dl.cli import cli
+from kiwi_dl.commands import config_cmd as config_module
+from kiwi_dl.commands import proxy_cmd as proxy_module
+from kiwi_dl.ui.theme import make_console
 
 STYLED = "[bold red]PWNED[/bold red]"
 UNBALANCED = "agent[/bold]x"
@@ -27,8 +27,8 @@ UNBALANCED = "agent[/bold]x"
 
 @pytest.fixture()
 def cli_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "logs"))
     # The auto-detected width (80) would wrap a long cell and hide the evidence.
     monkeypatch.setattr(config_module, "_console", make_console(width=400))
     monkeypatch.setattr(proxy_module, "_console", make_console(width=400))

@@ -354,7 +354,7 @@ def _rich_bar(percent: float, width: int, status: str = "active") -> Text:
 
 
 def build_progress(console: Console | None = None) -> Progress:
-    """Build a Progress object with the standard MegaBasterd CLI column layout.
+    """Build a Progress object with the standard kiwi-dl column layout.
 
     Compatibility surface retained for the 1.x series.
     """

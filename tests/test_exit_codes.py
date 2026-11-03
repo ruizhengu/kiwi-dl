@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-import megabasterd_cli.commands.download_cmd as download_cmd_module
-from megabasterd_cli.cli import cli
-from megabasterd_cli.core.downloader import DownloadResult, MegaDownloader
-from megabasterd_cli.core.errors import TransferError
+import kiwi_dl.commands.download_cmd as download_cmd_module
+from kiwi_dl.cli import cli
+from kiwi_dl.core.downloader import DownloadResult, MegaDownloader
+from kiwi_dl.core.errors import TransferError
 
 FILE_URL = "https://mega.nz/file/abc123#xyz"
 FILE_URL_2 = "https://mega.nz/file/def456#uvw"
@@ -22,8 +22,8 @@ FILE_URL_2 = "https://mega.nz/file/def456#uvw"
 
 @pytest.fixture()
 def cli_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "logs"))
     return tmp_path
 
 
@@ -76,8 +76,8 @@ def test_invalid_link_counts_as_failure(cli_env):
 
 
 def test_selection_cancellation_is_a_skip_not_a_failure(cli_env, monkeypatch):
-    from megabasterd_cli.core.folder_downloader import MegaFolderDownloader
-    from megabasterd_cli.utils.selection import SelectionCancelled
+    from kiwi_dl.core.folder_downloader import MegaFolderDownloader
+    from kiwi_dl.utils.selection import SelectionCancelled
 
     def cancelled(self, url, output_dir, **kwargs):
         raise SelectionCancelled()
@@ -93,7 +93,7 @@ def test_selection_cancellation_is_a_skip_not_a_failure(cli_env, monkeypatch):
 
 def test_download_file_reports_failure_to_controller(cli_env, monkeypatch):
     """The shared controller marks the failed row, not just the exit code."""
-    from megabasterd_cli.ui.transfer_progress import TransferProgress
+    from kiwi_dl.ui.transfer_progress import TransferProgress
 
     def boom(self, url, output_dir, **kwargs):
         raise TransferError(message="nope")

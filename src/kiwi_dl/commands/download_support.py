@@ -1,4 +1,4 @@
-"""Per-transfer execution helpers behind `mb download`.
+"""Per-transfer execution helpers behind `kiwi-dl download`.
 
 Split out of `download_cmd.py`, which had grown past 800 lines. Everything here
 runs AFTER Click has parsed the command line: it drives one file or folder
@@ -237,7 +237,7 @@ def _download_folder(
             f"Source: {redact_link(url)}",
             f"Output: {output_dir}",
             "",
-            "Backend: MegaBasterd-CLI",
+            "Backend: kiwi-dl",
         ],
         quiet=quiet,
     )

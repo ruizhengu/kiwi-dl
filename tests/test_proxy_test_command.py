@@ -34,9 +34,9 @@ import time
 import pytest
 from click.testing import CliRunner
 
-from megabasterd_cli.commands import proxy_cmd as proxy_module
-from megabasterd_cli.commands.proxy_cmd import proxy_cmd
-from megabasterd_cli.ui.theme import make_console
+from kiwi_dl.commands import proxy_cmd as proxy_module
+from kiwi_dl.commands.proxy_cmd import proxy_cmd
+from kiwi_dl.ui.theme import make_console
 
 PASSWORD = "SENTINEL_PASSWORD"
 TOKEN = "SENTINEL_TOKEN"
@@ -45,7 +45,7 @@ TOKEN = "SENTINEL_TOKEN"
 @pytest.fixture
 def pool_dir(tmp_path, monkeypatch):
     """Point the proxy store at an isolated directory (same as the other suites)."""
-    monkeypatch.setattr("megabasterd_cli.proxy.runtime.data_dir", lambda: tmp_path)
+    monkeypatch.setattr("kiwi_dl.proxy.runtime.data_dir", lambda: tmp_path)
     return tmp_path
 
 
@@ -83,7 +83,7 @@ def dead_port():
 
 
 def _run(args, **cfg_kwargs):
-    from megabasterd_cli.config import Config
+    from kiwi_dl.config import Config
 
     return CliRunner().invoke(proxy_cmd, args, obj={"config": Config(**cfg_kwargs)})
 

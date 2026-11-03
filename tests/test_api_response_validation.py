@@ -21,8 +21,8 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-from megabasterd_cli.core.api import MegaAPIClient
-from megabasterd_cli.core.errors import MegaError
+from kiwi_dl.core.api import MegaAPIClient
+from kiwi_dl.core.errors import MegaError
 
 
 class _Pool:

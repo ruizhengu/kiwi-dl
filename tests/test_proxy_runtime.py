@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from megabasterd_cli.config import Config
-from megabasterd_cli.proxy import runtime
-from megabasterd_cli.proxy.smart_proxy import SmartProxyPool
+from kiwi_dl.config import Config
+from kiwi_dl.proxy import runtime
+from kiwi_dl.proxy.smart_proxy import SmartProxyPool
 
 
 def _set_data_dir(tmp_path: Path):

@@ -1,4 +1,4 @@
-"""`mb config` - view and modify CLI settings."""
+"""`kiwi-dl config` - view and modify CLI settings."""
 
 from __future__ import annotations
 
@@ -140,7 +140,7 @@ def config_recover(ctx: click.Context, do_reset: bool) -> None:
     if not do_reset:
         if store.is_corrupt:
             click.echo(store.corruption_reason, err=True)
-            click.echo("Run `mb config recover --reset` to start from defaults.", err=True)
+            click.echo("Run `kiwi-dl config recover --reset` to start from defaults.", err=True)
             ctx.exit(1)
         print_success("Configuration file is valid; nothing to recover.")
         return

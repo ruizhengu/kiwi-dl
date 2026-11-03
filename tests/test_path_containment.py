@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.core.folder_downloader import FolderNode, MegaFolderDownloader
-from megabasterd_cli.utils.helpers import (
+from kiwi_dl.core.folder_downloader import FolderNode, MegaFolderDownloader
+from kiwi_dl.utils.helpers import (
     ensure_within_directory,
     is_within_directory,
     sanitize_filename,

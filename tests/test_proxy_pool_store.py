@@ -15,12 +15,12 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from megabasterd_cli.commands import proxy_cmd
-from megabasterd_cli.config import Config
-from megabasterd_cli.proxy import runtime
-from megabasterd_cli.proxy.runtime import _load_persisted_pool
-from megabasterd_cli.ui.theme import make_console
-from megabasterd_cli.utils.filelock import FileLock, FileLockError
+from kiwi_dl.commands import proxy_cmd
+from kiwi_dl.config import Config
+from kiwi_dl.proxy import runtime
+from kiwi_dl.proxy.runtime import _load_persisted_pool
+from kiwi_dl.ui.theme import make_console
+from kiwi_dl.utils.filelock import FileLock, FileLockError
 
 HARD_TIMEOUT = 90.0
 

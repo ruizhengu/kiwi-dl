@@ -21,8 +21,8 @@ from contextlib import redirect_stderr, redirect_stdout
 
 import pytest
 
-from megabasterd_cli import config as cfg
-from megabasterd_cli.utils import logger as lg
+from kiwi_dl import config as cfg
+from kiwi_dl.utils import logger as lg
 
 SECRET_URL = "http://alice:hunter2@1.2.3.4:8080"
 
@@ -53,7 +53,7 @@ def test_console_logging_never_touches_stdout(clean_root):
     out, err = io.StringIO(), io.StringIO()
     with redirect_stdout(out), redirect_stderr(err):
         lg.setup_logging(level="WARNING")
-        logging.getLogger("megabasterd_cli.test").warning("MARKERWORD")
+        logging.getLogger("kiwi_dl.test").warning("MARKERWORD")
         for handler in logging.getLogger().handlers:
             handler.flush()
 
@@ -83,7 +83,7 @@ def _record_with_exception() -> logging.LogRecord:
         import sys
 
         return logging.LogRecord(
-            name="megabasterd_cli.test",
+            name="kiwi_dl.test",
             level=logging.ERROR,
             pathname=__file__,
             lineno=1,
@@ -118,7 +118,7 @@ def test_file_handler_output_carries_the_redacted_traceback(clean_root, tmp_path
         try:
             raise RuntimeError(f"proxy auth failed for {SECRET_URL} (password: swordfish)")
         except RuntimeError:
-            logging.getLogger("megabasterd_cli.test").exception("Fatal error")
+            logging.getLogger("kiwi_dl.test").exception("Fatal error")
         for handler in logging.getLogger().handlers:
             handler.flush()
 
@@ -145,7 +145,7 @@ def test_display_value_redacts_auth_headers_in_run_command():
 
 
 def test_display_value_keeps_its_existing_special_cases():
-    from megabasterd_cli.utils.redaction import REDACTED
+    from kiwi_dl.utils.redaction import REDACTED
 
     assert REDACTED in cfg.display_value("smart_proxy_url", "http://u:swordfish@h.invalid:1")
     assert cfg.display_value("smart_proxy_url", None) is None

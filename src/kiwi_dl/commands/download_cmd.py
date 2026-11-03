@@ -1,4 +1,4 @@
-"""`mb download` - download files/folders from MEGA public links."""
+"""`kiwi-dl download` - download files/folders from MEGA public links."""
 
 from __future__ import annotations
 
@@ -328,7 +328,7 @@ def download(
                 f"Source: {len(file_jobs) + len(folder_file_jobs)} link(s)",
                 f"Output: {output_dir}",
                 "",
-                "Backend: MegaBasterd-CLI",
+                "Backend: kiwi-dl",
             ],
             quiet=quiet,
         )

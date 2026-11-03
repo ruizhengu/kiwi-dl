@@ -234,7 +234,7 @@ def _register_shutdown_log() -> None:
 
     def _log_shutdown() -> None:
         elapsed = time.perf_counter() - _process_started_at
-        logging.getLogger("megabasterd_cli.lifecycle").info(
+        logging.getLogger("kiwi_dl.lifecycle").info(
             "CLI process shutdown elapsed_seconds=%.3f", elapsed
         )
 
@@ -262,7 +262,7 @@ def setup_logging(
     root.setLevel(logging.DEBUG)
     root.filters.clear()
     set_log_context(
-        run_id or os.environ.get("MEGABASTERD_RUN_ID") or uuid.uuid4().hex[:12], command or "-"
+        run_id or os.environ.get("KIWI_DL_RUN_ID") or uuid.uuid4().hex[:12], command or "-"
     )
     context_filter = ContextFilter()
     redacting_filter = RedactingFilter()
@@ -278,7 +278,7 @@ def setup_logging(
 
         # stderr, explicitly: a bare Console binds to sys.stdout, which the
         # --json contract reserves for structured records (and which
-        # `mb ls > out.txt` sends to the user's data file).
+        # `kiwi-dl ls > out.txt` sends to the user's data file).
         handler: logging.Handler = RichHandler(
             console=Console(stderr=True),
             rich_tracebacks=True,

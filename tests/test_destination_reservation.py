@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 
-from megabasterd_cli.utils.helpers import (
+from kiwi_dl.utils.helpers import (
     claim_destination,
     release_destination,
     sanitize_filename,
@@ -110,7 +110,7 @@ import multiprocessing as mp  # noqa: E402
 import os as _os  # noqa: E402
 from pathlib import Path as FsPath  # noqa: E402
 
-from megabasterd_cli.utils.helpers import CLAIM_SUFFIX  # noqa: E402
+from kiwi_dl.utils.helpers import CLAIM_SUFFIX  # noqa: E402
 
 
 def _claim_in_process(args):
@@ -119,7 +119,7 @@ def _claim_in_process(args):
     import time
     from pathlib import Path as FsPath
 
-    from megabasterd_cli.utils.helpers import claim_destination as claim
+    from kiwi_dl.utils.helpers import claim_destination as claim
 
     # Rendezvous through the filesystem (a mp.Barrier cannot cross `spawn`
     # cleanly on Windows): announce readiness, then wait for everyone.
@@ -159,7 +159,7 @@ def _crash_after_claiming(args):
     directory, name = args
     from pathlib import Path as FsPath
 
-    from megabasterd_cli.utils.helpers import claim_destination as claim
+    from kiwi_dl.utils.helpers import claim_destination as claim
 
     claimed = claim(FsPath(directory) / name)
     _os._exit(1)  # hard exit: no cleanup, no release
@@ -204,7 +204,7 @@ def test_released_sidecar_is_inert_and_reclaimable(tmp_path):
 def test_repeated_transfers_do_not_accumulate_locks(tmp_path):
     """Sidecars persist, but exactly one per destination name - they are reused,
     never multiplied, and none of them stays locked."""
-    from megabasterd_cli.utils.filelock import FileLock
+    from kiwi_dl.utils.filelock import FileLock
 
     for _ in range(3):
         claimed = claim_destination(tmp_path / "cycle.bin")
@@ -247,7 +247,7 @@ def test_three_party_sequence_cannot_produce_two_owners(tmp_path):
     Deterministic: every step is an explicit call, no sleeps. B and C must not
     both hold a lock on the same destination.
     """
-    from megabasterd_cli.utils.filelock import FileLock
+    from kiwi_dl.utils.filelock import FileLock
 
     target = tmp_path / "shared.bin"
 

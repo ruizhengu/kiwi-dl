@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from megabasterd_cli.core.crypto import (
+from kiwi_dl.core.crypto import (
     aes_cbc_encrypt,
     aes_key_wrap_decrypt,
     aes_key_wrap_encrypt,

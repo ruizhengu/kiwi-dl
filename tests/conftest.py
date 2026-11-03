@@ -28,6 +28,6 @@ def _isolate_user_dir(tmp_path_factory, monkeypatch):
     fixture and wins.
     """
     root = tmp_path_factory.mktemp("mb-user")
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(root))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(root / "Logs"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(root))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(root / "Logs"))
     return root

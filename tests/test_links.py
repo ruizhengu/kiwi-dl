@@ -2,7 +2,7 @@
 
 import pytest
 
-from megabasterd_cli.core.links import LinkType, is_mega_url, parse_link
+from kiwi_dl.core.links import LinkType, is_mega_url, parse_link
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,6 @@
 """Tests for utility helpers."""
 
-from megabasterd_cli.utils.helpers import (
+from kiwi_dl.utils.helpers import (
     format_bytes,
     format_eta,
     sanitize_filename,

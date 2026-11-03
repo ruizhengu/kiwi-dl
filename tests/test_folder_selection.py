@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.core.crypto import (
+from kiwi_dl.core.crypto import (
     a32_to_bytes,
     aes_key_wrap_encrypt,
     b64_url_encode,
@@ -23,10 +23,10 @@ from megabasterd_cli.core.crypto import (
     str_to_a32,
     unpack_file_key,
 )
-from megabasterd_cli.core.downloader import DownloadResult, MegaDownloader
-from megabasterd_cli.core.errors import TransferError
-from megabasterd_cli.core.folder_downloader import FolderNode, MegaFolderDownloader
-from megabasterd_cli.utils.selection import (
+from kiwi_dl.core.downloader import DownloadResult, MegaDownloader
+from kiwi_dl.core.errors import TransferError
+from kiwi_dl.core.folder_downloader import FolderNode, MegaFolderDownloader
+from kiwi_dl.utils.selection import (
     build_folder_file_filter,
     parse_selection_tokens,
 )

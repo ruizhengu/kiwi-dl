@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from megabasterd_cli.ui import prompts
-from megabasterd_cli.ui.theme import THEME, styled_prompt
+from kiwi_dl.ui import prompts
+from kiwi_dl.ui.theme import THEME, styled_prompt
 
 
 def _render(text) -> str:

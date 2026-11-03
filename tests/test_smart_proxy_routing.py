@@ -23,20 +23,20 @@ import pytest
 from click.testing import CliRunner
 from tenacity import wait_none
 
-from megabasterd_cli.cli import cli
-from megabasterd_cli.config import validate_config_value
-from megabasterd_cli.core import downloader as dl_mod
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import TransferError, TransferQuotaError
-from megabasterd_cli.core.folder_downloader import FolderNode, MegaFolderDownloader
-from megabasterd_cli.proxy.quota_router import (
+from kiwi_dl.cli import cli
+from kiwi_dl.config import validate_config_value
+from kiwi_dl.core import downloader as dl_mod
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import TransferError, TransferQuotaError
+from kiwi_dl.core.folder_downloader import FolderNode, MegaFolderDownloader
+from kiwi_dl.proxy.quota_router import (
     ROUTE_CHECK_SECONDS,
     ChunkRouter,
     Route,
     SmartProxyPolicy,
 )
-from megabasterd_cli.proxy.selector import ProxyRequiredError
-from megabasterd_cli.proxy.smart_proxy import SmartProxyPool
+from kiwi_dl.proxy.selector import ProxyRequiredError
+from kiwi_dl.proxy.smart_proxy import SmartProxyPool
 from tests.fake_mega import FakeCdn
 
 KiB = 1024
@@ -71,7 +71,7 @@ def steady_route(monkeypatch):
 def first_pick(monkeypatch):
     """Make the pool pick the first available entry, so a test knows who goes first."""
     monkeypatch.setattr(
-        "megabasterd_cli.proxy.smart_proxy.random.choices", lambda pop, weights, k: [pop[0]]
+        "kiwi_dl.proxy.smart_proxy.random.choices", lambda pop, weights, k: [pop[0]]
     )
 
 
@@ -340,7 +340,7 @@ def test_when_every_proxy_fails_the_direct_fallback_ends_it(cdn, tmp_path):
 
 def test_blocks_are_waited_out_from_the_budget_and_then_stop(cdn, tmp_path, monkeypatch):
     clock = Clock()
-    monkeypatch.setattr("megabasterd_cli.core.downloader.time.sleep", clock.advance)
+    monkeypatch.setattr("kiwi_dl.core.downloader.time.sleep", clock.advance)
     cdn.quota["direct"] = 0
 
     with pytest.raises(TransferQuotaError, match="quota budget of 2m 30s is spent"):
@@ -359,7 +359,7 @@ def test_a_quota_that_comes_back_during_the_wait_resumes_the_download(cdn, tmp_p
         clock.advance(seconds)
         cdn.quota.pop("direct", None)
 
-    monkeypatch.setattr("megabasterd_cli.core.downloader.time.sleep", sleep_and_reset)
+    monkeypatch.setattr("kiwi_dl.core.downloader.time.sleep", sleep_and_reset)
     cdn.quota["direct"] = 0
 
     _download(cdn, tmp_path, SmartProxyPolicy(None, budget_seconds=3600, clock=clock))
@@ -380,8 +380,8 @@ def test_the_budget_is_wall_clock_not_per_worker():
 
 @pytest.fixture()
 def cli_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("KIWI_DL_HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("KIWI_DL_LOG_DIR", str(tmp_path / "logs"))
     return tmp_path
 
 
@@ -411,10 +411,10 @@ def test_any_other_failure_in_the_batch_still_exits_1(cli_env, monkeypatch):
 
 @pytest.mark.parametrize("strict", [False, True])
 def test_api_calls_use_the_pool_only_in_strict_mode(cli_env, monkeypatch, strict):
-    import megabasterd_cli.commands.download_cmd as download_cmd
+    import kiwi_dl.commands.download_cmd as download_cmd
 
     pool = SmartProxyPool([A])
-    monkeypatch.setattr("megabasterd_cli.proxy.runtime.effective_pool_for_cmd", lambda c, p: pool)
+    monkeypatch.setattr("kiwi_dl.proxy.runtime.effective_pool_for_cmd", lambda c, p: pool)
     seen: list = []
     real_api_for = download_cmd.api_for
 

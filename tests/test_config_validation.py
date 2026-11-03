@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from megabasterd_cli.config import (
+from kiwi_dl.config import (
     DEPRECATED_CONFIG_KEYS,
     Config,
     ConfigStore,
@@ -103,7 +103,7 @@ def test_validate_config_value_unknown_key_is_noop():
 
 def test_optional_string_fields_reject_wrong_types_on_set(tmp_path):
     """MF8: None-default fields still have an expected type."""
-    import megabasterd_cli.config as config_module
+    import kiwi_dl.config as config_module
 
     for key in ("smart_proxy_url", "run_command", "all_finished_command"):
         config_module.validate_config_value(key, None)  # valid
@@ -145,7 +145,7 @@ def test_boolean_not_accepted_for_numeric_fields(tmp_path):
 
 def test_deprecated_and_unknown_keys_warn_once_per_process(tmp_path, caplog, monkeypatch):
     """MF10: repeated loads must not repeat the warning."""
-    import megabasterd_cli.config as config_module
+    import kiwi_dl.config as config_module
 
     monkeypatch.setattr(config_module, "_warned_config_keys", set())
     path = tmp_path / "config.json"
@@ -217,8 +217,8 @@ def test_old_hardcoded_user_agent_migrates_to_versioned(tmp_path):
     cfg = ConfigStore(path).load()
     assert cfg.user_agent == ""  # empty means "derive from package version"
 
-    from megabasterd_cli import __version__
-    from megabasterd_cli.core.api import MegaAPIClient
+    from kiwi_dl import __version__
+    from kiwi_dl.core.api import MegaAPIClient
 
     api = MegaAPIClient(user_agent=cfg.user_agent or None)
-    assert api.user_agent == f"MegaBasterd-CLI/{__version__}"
+    assert api.user_agent == f"kiwi-dl/{__version__}"

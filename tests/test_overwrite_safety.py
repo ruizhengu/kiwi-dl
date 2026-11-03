@@ -7,7 +7,7 @@ without any network I/O.
 
 from pathlib import Path
 
-from megabasterd_cli.core.downloader import MegaDownloader
+from kiwi_dl.core.downloader import MegaDownloader
 
 
 def _run_empty(dl: MegaDownloader, dest: Path):

@@ -1,4 +1,4 @@
-"""`mb info` — inspect a MEGA link without downloading."""
+"""`kiwi-dl info` — inspect a MEGA link without downloading."""
 
 from __future__ import annotations
 

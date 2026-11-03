@@ -38,7 +38,7 @@ jobs:
       - name: Run tests
         # -n auto comes from addopts in pyproject.toml, so a local run and this
         # job fan out the same way. Coverage is currently ~78%; the gate is 76.
-        run: pytest --cov=megabasterd_cli --cov-report=xml --cov-fail-under=76
+        run: pytest --cov=kiwi_dl --cov-report=xml --cov-fail-under=76
 
       # The console scripts are how a pip/pipx install is actually run.
       - name: Smoke-test installed commands

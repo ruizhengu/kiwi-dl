@@ -2,7 +2,7 @@
 
 import logging
 
-from megabasterd_cli.utils.logger import redact_log_text, setup_logging
+from kiwi_dl.utils.logger import redact_log_text, setup_logging
 
 
 def test_redact_log_text_hides_mega_urls_and_sensitive_fields():
@@ -44,14 +44,12 @@ def test_setup_logging_writes_contextual_file_records(tmp_path):
         run_id="testrun",
         command="download",
     )
-    logging.getLogger("megabasterd_cli.test").info(
-        "Downloaded from https://mega.nz/file/abc#secret"
-    )
+    logging.getLogger("kiwi_dl.test").info("Downloaded from https://mega.nz/file/abc#secret")
     logging.shutdown()
 
     text = log_path.read_text(encoding="utf-8")
     assert "run=testrun" in text
     assert "cmd=download" in text
-    assert "megabasterd_cli.test" in text
+    assert "kiwi_dl.test" in text
     assert "https://mega.nz" not in text
     assert "<redacted-url>" in text

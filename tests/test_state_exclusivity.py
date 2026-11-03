@@ -26,13 +26,13 @@ from pathlib import Path
 
 import pytest
 
-from megabasterd_cli.core.state import (
+from kiwi_dl.core.state import (
     TransferState,
     load_state,
     save_state,
     state_path_for,
 )
-from megabasterd_cli.utils.helpers import claim_destination, release_destination
+from kiwi_dl.utils.helpers import claim_destination, release_destination
 
 REPO_SRC = str(Path(__file__).resolve().parents[1] / "src")
 
@@ -85,7 +85,7 @@ def test_a_second_process_cannot_claim_a_held_destination(tmp_path):
         result = _run_in_subprocess(
             f"""
             from pathlib import Path
-            from megabasterd_cli.utils.helpers import claim_destination
+            from kiwi_dl.utils.helpers import claim_destination
             print(claim_destination(Path({str(target)!r})))
             """
         )
@@ -111,8 +111,8 @@ def test_the_two_processes_therefore_use_different_state_files(tmp_path):
         result = _run_in_subprocess(
             f"""
             from pathlib import Path
-            from megabasterd_cli.utils.helpers import claim_destination
-            from megabasterd_cli.core.state import state_path_for
+            from kiwi_dl.utils.helpers import claim_destination
+            from kiwi_dl.core.state import state_path_for
             print(state_path_for(claim_destination(Path({str(target)!r}))))
             """
         )

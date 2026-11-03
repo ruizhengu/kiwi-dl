@@ -24,10 +24,10 @@ import socket
 
 import pytest
 
-from megabasterd_cli.core import downloader as dl_mod
-from megabasterd_cli.core.downloader import MegaDownloader
-from megabasterd_cli.core.errors import QuotaError
-from megabasterd_cli.proxy.smart_proxy import SmartProxyPool
+from kiwi_dl.core import downloader as dl_mod
+from kiwi_dl.core.downloader import MegaDownloader
+from kiwi_dl.core.errors import QuotaError
+from kiwi_dl.proxy.smart_proxy import SmartProxyPool
 
 PROXY = "http://proxy.invalid:8080"
 
@@ -36,7 +36,7 @@ PROXY = "http://proxy.invalid:8080"
 def slept(monkeypatch):
     """Record every sleep instead of performing it."""
     calls: list[float] = []
-    monkeypatch.setattr("megabasterd_cli.core.downloader.time.sleep", calls.append)
+    monkeypatch.setattr("kiwi_dl.core.downloader.time.sleep", calls.append)
     return calls
 
 

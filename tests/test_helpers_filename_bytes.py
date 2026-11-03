@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from megabasterd_cli.utils.helpers import sanitize_filename
+from kiwi_dl.utils.helpers import sanitize_filename
 
 # ext4/APFS NAME_MAX is 255 bytes; the sanitizer keeps a margin below it.
 NAME_MAX_BYTES = 255
