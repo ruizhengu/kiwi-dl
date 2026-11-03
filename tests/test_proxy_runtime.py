@@ -18,21 +18,20 @@ def _set_data_dir(tmp_path: Path):
     return patch.object(runtime, "data_dir", lambda: fake)
 
 
-def test_effective_pool_returns_none_when_disabled(tmp_path: Path) -> None:
-    cfg = Config(smart_proxy_enabled=False, smart_proxy_url="http://1.2.3.4:8080")
+def test_effective_pool_returns_none_when_mode_is_off(tmp_path: Path) -> None:
+    cfg = Config(smart_proxy_mode="off", smart_proxy_url="http://1.2.3.4:8080")
     with _set_data_dir(tmp_path):
         assert runtime.effective_pool(cfg) is None
 
 
 def test_effective_pool_returns_none_when_empty(tmp_path: Path) -> None:
-    cfg = Config(smart_proxy_enabled=True, smart_proxy_url=None)
+    cfg = Config(smart_proxy_url=None)
     with _set_data_dir(tmp_path):
         assert runtime.effective_pool(cfg) is None
 
 
 def test_effective_pool_merges_config_urls(tmp_path: Path) -> None:
     cfg = Config(
-        smart_proxy_enabled=True,
         smart_proxy_url="http://1.2.3.4:8080, socks5://5.6.7.8:1080",
     )
     with _set_data_dir(tmp_path):
@@ -44,7 +43,6 @@ def test_effective_pool_merges_config_urls(tmp_path: Path) -> None:
 
 def test_effective_pool_merges_persisted_and_config(tmp_path: Path) -> None:
     cfg = Config(
-        smart_proxy_enabled=True,
         smart_proxy_url="http://config-proxy:1234",
     )
     with _set_data_dir(tmp_path):
@@ -64,7 +62,6 @@ def test_urls_from_config_separators() -> None:
 
 def test_effective_pool_for_cmd_skipped_when_explicit_proxy(tmp_path: Path) -> None:
     cfg = Config(
-        smart_proxy_enabled=True,
         smart_proxy_url="http://config-proxy:1234",
     )
     with _set_data_dir(tmp_path):
@@ -80,7 +77,6 @@ def test_effective_pool_deduplicates(tmp_path: Path) -> None:
     """A URL present in both the persisted pool and the config should only
     appear once in the merged pool."""
     cfg = Config(
-        smart_proxy_enabled=True,
         smart_proxy_url="http://duplicate:1111",
     )
     with _set_data_dir(tmp_path):
@@ -91,3 +87,23 @@ def test_effective_pool_deduplicates(tmp_path: Path) -> None:
         assert pool is not None
         urls = [e.url for e in pool.list()]
         assert urls == ["http://duplicate:1111"]
+
+
+def test_adding_proxies_is_what_turns_them_on(tmp_path: Path) -> None:
+    """No separate on-switch: a configured proxy is a proxy the user wants used."""
+    cfg = Config(smart_proxy_url="http://1.2.3.4:8080")
+    with _set_data_dir(tmp_path):
+        pool = runtime.effective_pool(cfg)
+    assert pool is not None and [e.url for e in pool.list()] == ["http://1.2.3.4:8080"]
+
+
+def test_a_config_from_the_old_switch_loads_with_a_warning(tmp_path: Path, caplog) -> None:
+    from kiwi_dl.config import ConfigStore
+
+    path = tmp_path / "config.json"
+    path.write_text('{"smart_proxy_enabled": false, "max_workers": 4}', encoding="utf-8")
+    with caplog.at_level("WARNING"):
+        cfg = ConfigStore(path).load()
+    assert cfg.max_workers == 4
+    assert not hasattr(cfg, "smart_proxy_enabled")
+    assert "smart_proxy_enabled" in caplog.text

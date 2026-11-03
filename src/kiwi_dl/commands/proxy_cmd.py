@@ -264,8 +264,8 @@ def proxy_test(ctx: click.Context) -> None:
 
     cfg = ctx.obj["config"]
     # Same pool `proxy list` shows: persisted entries plus `smart_proxy_url`.
-    # Not `effective_pool`, which returns None while smart_proxy_enabled is off
-    # - testing the pool before switching it on is the point of the command.
+    # Not `effective_pool`, which returns None under `smart_proxy_mode off` -
+    # testing the pool before switching it on is part of the command's point.
     pool = _load_persisted_pool()
     for url in _urls_from_config(cfg):
         pool.add(url)

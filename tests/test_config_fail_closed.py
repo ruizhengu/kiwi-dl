@@ -20,7 +20,7 @@ from click.testing import CliRunner
 
 from kiwi_dl.cli import cli
 
-MALFORMED = b'{"force_smart_proxy": true, "smart_proxy_enabled": true,,, BROKEN'
+MALFORMED = b'{"force_smart_proxy": true, "smart_proxy_mode": "always",,, BROKEN'
 
 # Commands that must refuse to run at all while the config is unusable. Each
 # one either opens a socket, creates a destination, or mutates stored state.

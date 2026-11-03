@@ -6,12 +6,13 @@ sibling for the download/stream paths that also accept a manual `--proxy`).
 
 The active pool is the union of:
 
-1. The persisted pool in `<data_dir>/proxies.json` (managed by `kiwi-dl proxy add /
-   fetch / import`).
+1. The persisted pool in `<data_dir>/proxies.json` (managed by `kiwi-dl proxy
+   add / import`).
 2. Comma- or whitespace-separated URLs from the `smart_proxy_url` config key.
 
-If both sources are empty, `smart_proxy_enabled` is False, or
-`smart_proxy_mode` is "off", the helper returns None — callers should treat that as "no smart-proxy routing". A
+Adding proxies is what turns them on. If both sources are empty, or
+`smart_proxy_mode` is "off", the helper returns None - callers should treat
+that as "no smart-proxy routing". A
 malformed `proxies.json` raises ProxyPoolCorruptionError instead: "no routing"
 must be something the user chose, never something a broken file decided.
 """
@@ -108,10 +109,10 @@ def effective_pool(cfg: Config) -> SmartProxyPool | None:
     """Return the SmartProxyPool the command should use, or None.
 
     The pool merges the persisted on-disk pool with anything listed in
-    `smart_proxy_url`. Returns None if smart proxy is disabled OR the merged
-    pool ends up empty.
+    `smart_proxy_url`. Returns None if `smart_proxy_mode` is "off" OR the
+    merged pool is empty.
     """
-    if not cfg.smart_proxy_enabled or cfg.smart_proxy_mode == "off":
+    if cfg.smart_proxy_mode == "off":
         return None
     pool = _load_persisted_pool()
     for url in _urls_from_config(cfg):
