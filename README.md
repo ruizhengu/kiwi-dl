@@ -1,55 +1,115 @@
-# kiwi-dl
+<div align="center">
+  <h1>kiwi-dl</h1>
+  <p><b>Download MEGA links from your Mac or Linux terminal: resumable, verified, quota-aware.</b></p>
+  <p>
+    <a href="https://github.com/ruizhengu/kiwi-dl/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/ruizhengu/kiwi-dl/tests.yml?branch=main&label=tests&style=flat-square" alt="Tests"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license"></a>
+    <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=flat-square" alt="macOS and Linux">
+    <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square" alt="Python 3.10+">
+  </p>
+  <img src="assets/demo.svg" alt="kiwi-dl downloading a MEGA folder: a header, one row per file, and a summary" width="760">
+</div>
 
-Download public MEGA links from the terminal. When MEGA's download quota for
-your IP runs out, kiwi-dl can carry on through proxies you provide, the way
-MegaBasterd's SmartProxy does.
+> **Pre-release.** There is no tagged version yet, so the installer installs the
+> `main` branch. kiwi-dl is not affiliated with Mega Limited.
 
-> Not affiliated with Mega Limited. kiwi-dl is built on
-> [MegaBasterd-CLI](https://github.com/KiaroSama/MegaBasterd-CLI) by Kiaro Sama
-> (MIT), and its proxy behaviour follows
-> [MegaBasterd](https://github.com/tonikelope/megabasterd).
+## Features
 
-## Install
+- **A menu, nothing to memorise.** Run `kiwi-dl` and choose with the arrow keys.
+  Every menu action is also a plain command for scripts.
+- **Files and whole folders.** Folders keep their layout; pick files from a list
+  or filter them with globs.
+- **Resumable.** Run the same command again and it carries on. Ctrl-C stops
+  within a second and keeps what has finished.
+- **Verified.** Every file is checked against the MAC in its link key before it
+  counts as done.
+- **Quota-aware.** When MEGA's free quota runs out, kiwi-dl says when it resets,
+  or carries on through proxies you add.
+- **Tidy.** One-line install, `kiwi-dl update`, and `kiwi-dl remove` to leave
+  nothing behind.
 
-macOS (Apple Silicon or Intel) or Linux, Python 3.10 or newer:
+## Quick start
 
 ```bash
-uv tool install git+https://github.com/ruizhengu/kiwi-dl
+curl -fsSL https://raw.githubusercontent.com/ruizhengu/kiwi-dl/main/install.sh | bash
 ```
 
-or `pipx install git+https://github.com/ruizhengu/kiwi-dl`. Both put two
-commands on your `PATH`: `mg-dl` to download and `kiwi-dl` for everything else.
+Then:
 
-## Download
+```bash
+kiwi-dl                                  # the menu
+mg-dl 'https://mega.nz/file/ID#KEY'      # or download straight away
+```
+
+kiwi-dl runs on macOS (Apple Silicon or Intel) and Linux. The installer sets it
+up as an isolated tool with [uv](https://docs.astral.sh/uv/), or pipx if you
+have that instead, and tells you how to get uv if you have neither. To do it by
+hand: `uv tool install git+https://github.com/ruizhengu/kiwi-dl`.
+
+## Safety
+
+- **No account.** kiwi-dl downloads public links and never asks for or uses a
+  MEGA account.
+- **Nothing is overwritten.** If a file of the same name is already there and is
+  not an unfinished copy of this download, the new one is saved as `name (1).ext`.
+  Pass `--overwrite` to replace it.
+- **Keys stay private.** Logs and `--json` output never contain a link's key (the
+  part after `#`), and proxy passwords show as `<redacted>`. The `.mbstate` file
+  beside an unfinished download holds the full link because resuming needs it;
+  it is deleted when the download completes.
+- **Removal is scoped.** `kiwi-dl remove --purge` deletes kiwi-dl's own settings
+  and logs, never your downloads. Add `--dry-run` to see the list first.
+
+## Usage
+
+### The menu
+
+```text
+kiwi-dl 0.1.0 · download public MEGA links
+⚙ Apple Silicon · macOS 26.6 · 412.80 GB free · ~/Downloads
+
+➤ Download   Save a file or folder from a MEGA link
+  Inspect    See what a link holds, without downloading it
+  Proxies    Your proxy pool: list, add, test, remove
+  Settings   Download folder, parallel files, speed limit
+  Help       Every command and option
+  Quit
+
+↑↓ move · ⏎ select · 1-9 jump · q quit
+```
+
+`↑`/`↓` or `j`/`k` move, Enter or a number chooses, `q` goes back. Download asks
+for the link and offers `~/Downloads`; for a folder it offers to let you pick
+the files. A Ctrl-C during a download stops it and brings you back here.
+
+### Download
 
 ```bash
 mg-dl 'https://mega.nz/file/ID#KEY'
-mg-dl 'https://mega.nz/folder/ID#KEY' -o ~/Downloads
-mg-dl -i links.txt
+mg-dl 'https://mega.nz/folder/ID#KEY' -o ~/Downloads --select
+mg-dl -i links.txt -P 3
 ```
 
 Put links in single quotes: the shell treats `#` and `!` specially, and old-style
 `#!` and `#F!` links are common.
 
 - Files land in the current folder unless you pass `-o` or set `download_path`.
-- Run the same command again to resume. Finished chunks are recorded in a
-  `.mbstate` file next to the download, which is deleted once the file is complete.
-- Ctrl-C stops within a second and keeps what has finished.
-- Every file is checked against the MAC in its link key before it counts as done.
 - Folder links: `--select` to pick files, `-I '*.mp4'` / `-X '*.txt'` to filter.
-- `-P 3` downloads three files at once; `-w 8` sets the connections per file;
+- `-P 3` downloads three files at once, `-w 8` sets the connections per file, and
   `-l 2000` caps the speed at 2000 KB/s.
-- `--json` prints one JSON record per file on stdout for scripts.
+- Protected links: `-p PASSWORD`, or set `KIWI_DL_PASSWORD` so it stays out of
+  your shell history.
+- `--json` prints one JSON record per file on stdout, for scripts.
 
-## When the quota runs out
+### When the quota runs out
 
-MEGA limits how much one IP may download anonymously. Once it is spent, MEGA's
-servers answer HTTP 509 along with the time until it resets.
+MEGA limits how much one IP may download anonymously. Once it is spent, MEGA
+answers HTTP 509 along with the time until it resets.
 
 **Without proxies**, kiwi-dl stops straight away and tells you when to try again:
 
 ```text
-Download failed: MEGA transfer quota exceeded (HTTP 509); it resets in about 4h 38m
+✗ Download failed: MEGA transfer quota exceeded (HTTP 509); it resets in about 4h 38m
 ```
 
 The exit code is 3. Run the same command after the reset and it resumes. To wait
@@ -66,10 +126,9 @@ kiwi-dl proxy test                   # which ones answer
 - Downloads go direct until MEGA answers 509. Then every download in the run
   switches to the proxies for an hour, or less if the quota resets sooner, and
   goes direct again after that.
-- Each connection keeps its proxy until that proxy fails.
-- A proxy that returns an error is skipped by everyone for 5 minutes. A timeout
-  only moves that one connection to another proxy.
-- If every proxy has failed, kiwi-dl goes back to a direct connection.
+- Each connection keeps its proxy until that proxy fails. A proxy that returns
+  an error is skipped by everyone for 5 minutes; a timeout only moves that one
+  connection. If every proxy has failed, kiwi-dl goes back to a direct connection.
 - Link lookups always go direct; only file data goes through proxies.
 - Proxies can alter what they relay. If a file fails its final check, only the
   parts that came through proxies are downloaded again, and those proxies are
@@ -83,18 +142,18 @@ download; whether and how you use this is your decision.
 byte, and `off` ignores them. `force_smart_proxy true` never connects directly,
 including link lookups.
 
-## Link info
+### Inspect a link
 
 ```bash
 kiwi-dl info 'https://mega.nz/folder/ID#KEY'          # name, size, file count
 kiwi-dl info 'https://mega.nz/folder/ID#KEY' --json   # plus every file's path
 ```
 
-## Settings
+### Settings
 
 ```bash
 kiwi-dl config show
-kiwi-dl config set max_workers 12
+kiwi-dl config set max_parallel_downloads 3
 kiwi-dl config path
 ```
 
@@ -113,12 +172,21 @@ kiwi-dl config path
 | `run_command` | *(none)* | Run after each finished file, with its path as the argument. |
 | `all_finished_command` | *(none)* | Run once at the end, with `download <ok> <failed>`. |
 
-kiwi-dl keeps its config and proxy list in `~/Library/Application Support/kiwi-dl`
-and its log in `~/Library/Logs/kiwi-dl`. On Linux it uses `~/.config/kiwi-dl`,
-`~/.local/share/kiwi-dl` and `~/.local/state/kiwi-dl` (or your `XDG_*`
-directories). Set `KIWI_DL_HOME` to keep everything in one folder instead.
+On macOS, settings and the proxy pool live in `~/Library/Application Support/kiwi-dl`
+and the log in `~/Library/Logs/kiwi-dl`. On Linux they live in `~/.config/kiwi-dl`,
+`~/.local/share/kiwi-dl` and `~/.local/state/kiwi-dl` (or your `XDG_*` folders).
+Set `KIWI_DL_HOME` to keep everything in one folder instead.
 
-## Exit codes
+### Update, remove, completion
+
+```bash
+kiwi-dl update                      # reinstall the latest, with the tool that installed it
+kiwi-dl remove                      # uninstall; settings and logs stay
+kiwi-dl remove --purge --dry-run    # see what --purge would delete
+eval "$(kiwi-dl completion zsh)"    # tab completion; also bash and fish
+```
+
+### Exit codes
 
 | Code | Meaning |
 | --- | --- |
@@ -128,24 +196,24 @@ directories). Set `KIWI_DL_HOME` to keep everything in one folder instead.
 | `3` | Only MEGA's quota stopped it; try again after the reset. |
 | `130` | Stopped with Ctrl-C. |
 
-## Privacy
-
-Logs and `--json` output never contain a link's key (the part after `#`), and
-proxy passwords are shown as `<redacted>`. The `.mbstate` file next to an
-unfinished download holds the link, key included, because resuming needs it; it
-is deleted when the download completes. kiwi-dl never uses a MEGA account.
-
 ## Development
 
 ```bash
+git clone https://github.com/ruizhengu/kiwi-dl && cd kiwi-dl
 uv venv && uv pip install -e ".[dev]"
-.venv/bin/pytest            # runs in parallel; no network, no MEGA account
-.venv/bin/ruff check src tests && .venv/bin/mypy src
+.venv/bin/pytest                                   # parallel; no network, no MEGA account
+.venv/bin/ruff check src tests && .venv/bin/black --check src tests && .venv/bin/mypy src
 ```
 
 The tests talk to a fake MEGA (`tests/fake_mega.py`) that serves really encrypted
-files and answers like the live service, 509s included.
+files and answers like the live service, 509s included. CI runs them on macOS
+and Ubuntu with Python 3.10 to 3.14, and installs with `install.sh` on both.
 
-## License
+## Credits
 
-MIT. See [LICENSE](LICENSE) and [ATTRIBUTION.md](ATTRIBUTION.md).
+Built on [MegaBasterd-CLI](https://github.com/KiaroSama/MegaBasterd-CLI) by Kiaro
+Sama (MIT). The proxy behaviour follows [MegaBasterd](https://github.com/tonikelope/megabasterd)
+by tonikelope, and the interface takes its cues from [Mole](https://github.com/tw93/mole)
+by tw93. kiwi-dl is not affiliated with Mega Limited.
+
+MIT licensed. See [LICENSE](LICENSE) and [ATTRIBUTION.md](ATTRIBUTION.md).
