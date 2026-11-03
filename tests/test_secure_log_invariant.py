@@ -29,7 +29,7 @@ import pytest
 from kiwi_dl.utils import secure_log
 from kiwi_dl.utils.logger import OwnerOnlyRotatingFileHandler, setup_logging
 from kiwi_dl.utils.secure_log import InsecureLogFileError
-from tests.helpers import OWNER_ONLY, posix_only, windows_only
+from tests.helpers import OWNER_ONLY
 from tests.helpers import mode as _mode
 
 SENTINEL = "SENTINEL-PW-4471"
@@ -51,10 +51,8 @@ def reset_warn_once():
     from kiwi_dl.utils import logger as logger_module
 
     logger_module._file_logging_warned = False
-    secure_log._verified.clear()
     yield
     logger_module._file_logging_warned = False
-    secure_log._verified.clear()
 
 
 @pytest.fixture
@@ -114,7 +112,6 @@ class _OsWith:
 # ---------------------------------------------------------------------------
 
 
-@posix_only
 def test_a_new_log_is_created_0600_and_verified_before_the_first_byte(
     tmp_path, umask_zero, monkeypatch
 ):
@@ -148,7 +145,6 @@ def test_a_new_log_is_created_0600_and_verified_before_the_first_byte(
 # ---------------------------------------------------------------------------
 
 
-@posix_only
 def test_a_permissive_pre_existing_file_is_never_written_while_permissive(tmp_path, umask_zero):
     path = tmp_path / "planted.log"
     path.write_text("planted\n", encoding="utf-8")
@@ -164,7 +160,6 @@ def test_a_permissive_pre_existing_file_is_never_written_while_permissive(tmp_pa
     assert "ours" in path.read_text(encoding="utf-8")
 
 
-@posix_only
 def test_a_permissive_pre_existing_file_is_not_unlinked_and_replaced(tmp_path, umask_zero):
     """Unlink-and-replace destroys an arbitrary pre-existing path; tighten instead."""
     path = tmp_path / "planted.log"
@@ -184,7 +179,6 @@ def test_a_permissive_pre_existing_file_is_not_unlinked_and_replaced(tmp_path, u
 # ---------------------------------------------------------------------------
 
 
-@posix_only
 def test_a_symlink_at_the_log_path_is_not_followed_by_append_line(tmp_path, umask_zero):
     target = tmp_path / "victim.txt"
     target.write_text("victim contents\n", encoding="utf-8")
@@ -198,7 +192,6 @@ def test_a_symlink_at_the_log_path_is_not_followed_by_append_line(tmp_path, umas
     assert target.read_bytes() == before, "the write followed the planted symlink"
 
 
-@posix_only
 def test_a_symlink_at_the_log_path_is_not_followed_by_the_rotating_handler(
     tmp_path, umask_zero, monkeypatch
 ):
@@ -221,7 +214,6 @@ def test_a_symlink_at_the_log_path_is_not_followed_by_the_rotating_handler(
 # ---------------------------------------------------------------------------
 
 
-@posix_only
 @pytest.mark.parametrize("kind", ["directory", "fifo"])
 def test_a_non_regular_path_is_rejected(tmp_path, umask_zero, kind):
     path = tmp_path / "cli.log"
@@ -241,7 +233,6 @@ def test_a_non_regular_path_is_rejected(tmp_path, umask_zero, kind):
 # ---------------------------------------------------------------------------
 
 
-@posix_only
 @pytest.mark.parametrize("victim", ["open", "fchmod", "fstat"])
 def test_a_failed_secure_open_never_falls_back_to_an_ordinary_open(
     tmp_path, umask_zero, monkeypatch, victim
@@ -267,7 +258,6 @@ def test_a_failed_secure_open_never_falls_back_to_an_ordinary_open(
         assert "ours" not in path.read_text(encoding="utf-8"), "content was written anyway"
 
 
-@posix_only
 def test_a_failed_handler_open_never_calls_the_base_class_open(tmp_path, umask_zero, monkeypatch):
     path = tmp_path / "cli.log"
     spy = _OpenSpy(monkeypatch)
@@ -287,7 +277,6 @@ def test_a_failed_handler_open_never_calls_the_base_class_open(tmp_path, umask_z
 # ---------------------------------------------------------------------------
 
 
-@posix_only
 def test_rotation_leaves_every_file_owner_only(tmp_path, umask_zero, logging_teardown):
     log_file = tmp_path / "cli.log"
     setup_logging(level="DEBUG", log_file=log_file, quiet=True, max_bytes=200, backup_count=2)
@@ -317,7 +306,6 @@ def _plant_symlink(link: Path, target: Path) -> None:
     link.symlink_to(target)
 
 
-@posix_only
 def test_a_symlink_at_a_rotation_destination_makes_rollover_fail_closed(
     tmp_path, umask_zero, logging_teardown, monkeypatch
 ):
@@ -340,7 +328,6 @@ def test_a_symlink_at_a_rotation_destination_makes_rollover_fail_closed(
     assert _mode(log_file) == OWNER_ONLY
 
 
-@posix_only
 def test_a_rollover_failure_disables_the_file_handler_instead_of_writing(
     tmp_path, umask_zero, logging_teardown
 ):
@@ -365,91 +352,6 @@ def test_a_rollover_failure_disables_the_file_handler_instead_of_writing(
 
 def _icacls(path: Path) -> str:
     return subprocess.run(["icacls", str(path)], capture_output=True, text=True, timeout=60).stdout
-
-
-@windows_only
-def test_a_pre_existing_windows_file_is_not_blindly_trusted(tmp_path, monkeypatch):
-    """`if os.path.exists(path): return` trusted whatever was already there."""
-    path = tmp_path / "planted.log"
-    path.write_text("planted\n", encoding="utf-8")
-    # Grant a broad principal explicitly rather than relying on the parent
-    # directory to hand one down. A GitHub runner's temp directory grants no
-    # inheritable ACEs, so the old "assert (I) is present" precondition failed
-    # there and the test could not run at all. The unsafe state has to be
-    # built, not inherited.
-    subprocess.run(
-        ["icacls", str(path), "/grant", "*S-1-1-0:(R)"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-    )
-    assert "S-1-1-0" in _icacls(path) or "Everyone" in _icacls(
-        path
-    ), "could not plant a broad ACE - the test would prove nothing"
-
-    hardened: list[str] = []
-    real = secure_log._windows_harden
-    monkeypatch.setattr(
-        secure_log,
-        "_windows_harden",
-        lambda p: (hardened.append(p), real(p))[1],
-    )
-
-    # Either outcome is safe and the brief allows both: repair it, or refuse
-    # it. What is NOT allowed is appending to it while it is still broad.
-    # `icacls /inheritance:r` strips INHERITED aces only, so an explicit
-    # Everyone ace like the one planted above cannot be repaired away - the
-    # implementation therefore rejects, which is the fail-closed answer.
-    rejected = False
-    try:
-        secure_log.append_line(path, "ours")
-    except InsecureLogFileError:
-        rejected = True
-
-    assert hardened, "the pre-existing file was accepted without any hardening attempt"
-    acl = _icacls(path)
-    broad = "S-1-1-0" in acl or "Everyone" in acl
-    if rejected:
-        assert "ours" not in path.read_text(encoding="utf-8"), "rejected but written anyway"
-    else:
-        assert not broad, f"appended to a file that still grants a broad principal:\n{acl}"
-        assert "(I)" not in acl, f"inherited ACEs survived:\n{acl}"
-
-
-@windows_only
-def test_a_failing_icacls_writes_nothing_and_does_not_fall_back(tmp_path, monkeypatch):
-    path = tmp_path / "cli.log"
-    spy = _OpenSpy(monkeypatch)
-
-    class _Failed:
-        returncode = 5
-        stdout = ""
-        stderr = "Access is denied."
-
-    monkeypatch.setattr(secure_log.subprocess, "run", lambda *a, **k: _Failed())
-
-    with pytest.raises(InsecureLogFileError):
-        secure_log.append_line(path, "ours")
-
-    assert spy.unsafe(path) == [], f"an unsafe fallback open ran: {spy.unsafe(path)}"
-    if path.exists():
-        assert path.read_text(encoding="utf-8") == "", "content was written despite failed ACLs"
-
-
-@windows_only
-def test_successful_hardening_disables_inheritance_and_keeps_the_current_user(tmp_path):
-    path = tmp_path / "cli.log"
-
-    secure_log.append_line(path, "ours")
-
-    acl = _icacls(path)
-    body = acl[len(str(path)) :] if acl.startswith(str(path)) else acl
-    assert "(I)" not in body, f"inheritance is still enabled:\n{acl}"
-    for broad in ("Everyone", "BUILTIN\\Users", "Authenticated Users"):
-        assert broad not in body, f"{broad} still has access:\n{acl}"
-    assert os.environ["USERNAME"].lower() in body.lower(), f"the owner lost access:\n{acl}"
-    assert path.read_text(encoding="utf-8").strip() == "ours"
 
 
 # ---------------------------------------------------------------------------

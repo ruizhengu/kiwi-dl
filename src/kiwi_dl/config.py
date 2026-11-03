@@ -238,7 +238,8 @@ def _xdg(variable: str, default: str) -> Path:
 
 
 def _platform_dirs() -> tuple[Path, Path, Path]:
-    """Where this platform keeps an application's (config, data, logs).
+    """Where this platform keeps an application's (config, data, logs): macOS's
+    Library folders, or the XDG directories everywhere else.
 
     Never the current directory: an installed CLI used to fall back to it, so
     config, proxies and logs landed in `./User/` of whatever folder it ran from.
@@ -246,10 +247,6 @@ def _platform_dirs() -> tuple[Path, Path, Path]:
     if sys.platform == "darwin":
         support = Path.home() / "Library" / "Application Support" / APP_NAME
         return support, support, Path.home() / "Library" / "Logs" / APP_NAME
-    if os.name == "nt":
-        roaming = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        base = Path(roaming) / APP_NAME
-        return base, base, base / "Logs"
     return (
         _xdg("XDG_CONFIG_HOME", ".config") / APP_NAME,
         _xdg("XDG_DATA_HOME", ".local/share") / APP_NAME,
@@ -457,10 +454,6 @@ class ConfigStore:
             else:
                 _warn_once(key, f"config: ignoring unknown key {key}")
         validate_config(cfg)
-        if cfg.user_agent == "MegaBasterd-CLI/1.0":
-            # Old persisted default carried a hard-coded version; empty means
-            # "derive from the installed package version".
-            cfg.user_agent = ""
         return cfg
 
     def save(self) -> None:

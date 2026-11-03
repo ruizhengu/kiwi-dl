@@ -200,7 +200,6 @@ def test_old_external_integration_config_loads_safely(tmp_path):
                 "smart_proxy_autorefresh_minutes": 30,
                 "smart_proxy_timeout_seconds": 10,
                 "smart_proxy_random": True,
-                "user_agent": "MegaBasterd-CLI/1.0",
                 "max_workers": 6,
             }
         ),
@@ -208,13 +207,10 @@ def test_old_external_integration_config_loads_safely(tmp_path):
     )
     cfg = ConfigStore(path).load()
     assert cfg.max_workers == 6
-    assert cfg.user_agent == "", "old hard-coded UA becomes version-derived"
 
 
-def test_old_hardcoded_user_agent_migrates_to_versioned(tmp_path):
-    path = tmp_path / "config.json"
-    path.write_text(json.dumps({"user_agent": "MegaBasterd-CLI/1.0"}), encoding="utf-8")
-    cfg = ConfigStore(path).load()
+def test_an_empty_user_agent_is_derived_from_the_version(tmp_path):
+    cfg = ConfigStore(tmp_path / "config.json").load()
     assert cfg.user_agent == ""  # empty means "derive from package version"
 
     from kiwi_dl import __version__

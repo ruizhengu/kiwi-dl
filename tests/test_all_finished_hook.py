@@ -200,10 +200,12 @@ def test_helper_skips_an_unconfigured_hook(spawns):
 
 
 def test_outcome_is_appended_as_three_argv_items(spawns):
-    run_all_finished_command('tool --dir "C:\\My Files"', kind="download", succeeded=4, failed=2)
+    run_all_finished_command(
+        'tool --dir "/Users/me/My Files"', kind="download", succeeded=4, failed=2
+    )
     argv = spawns[0][0]
     assert argv[-3:] == ["download", "4", "2"]
-    assert argv[:-3] == hooks_module.parse_hook_command('tool --dir "C:\\My Files"')
+    assert argv[:-3] == hooks_module.parse_hook_command('tool --dir "/Users/me/My Files"')
 
 
 def test_hook_arguments_are_not_logged(spawns, caplog):

@@ -25,6 +25,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Internet :: WWW/HTTP",
     "Topic :: Communications :: File Sharing",
 ]
@@ -35,7 +37,6 @@ dependencies = [
     "requests[socks]>=2.31.0",
     "pycryptodome>=3.19.0",
     "tenacity>=8.2.0",
-    "cryptography>=41.0.0",
 ]
 
 [project.optional-dependencies]

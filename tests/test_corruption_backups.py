@@ -149,7 +149,7 @@ def _detect(args):
 def test_concurrent_processes_preserve_exactly_one_backup(tmp_path):
     path = tmp_path / "config.json"
     path.write_bytes(CORRUPT_A)
-    ctx = mp.get_context("spawn")  # Windows-compatible
+    ctx = mp.get_context("spawn")
     with ctx.Pool(4) as pool:
         results = pool.map(_detect, [(str(tmp_path), "config.json")] * 4)
     assert all(results), "every process must see the corruption"
@@ -169,12 +169,9 @@ def test_recovered_config_is_valid_json_after_two_episodes(tmp_path):
 
 
 def test_backup_permissions_are_not_widened(tmp_path):
-    """A preserved config/queue can still contain secrets (connect_proxy_password,
-    sealed enc_password blobs), so the copy must be owner-only - the same rule
-    the queue key file already follows."""
-    if os.name == "nt":
-        pytest.skip("POSIX mode bits only")
-    path = tmp_path / "queue.json"
+    """A preserved config can still contain secrets (a proxy URL with its
+    password), so the copy must be owner-only."""
+    path = tmp_path / "config.json"
     path.write_bytes(CORRUPT_A)
     backup = preserve_corrupt_file(path, CORRUPT_A)
     assert backup is not None

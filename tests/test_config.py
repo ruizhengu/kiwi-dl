@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 
@@ -37,7 +36,6 @@ def test_macos_keeps_state_in_library(monkeypatch, no_home_override):
     assert log_dir() == no_home_override / "Library" / "Logs" / "kiwi-dl"
 
 
-@pytest.mark.skipif(os.name == "nt", reason="XDG applies to POSIX")
 def test_linux_follows_the_xdg_defaults(monkeypatch, no_home_override):
     monkeypatch.setattr(sys, "platform", "linux")
 
@@ -46,7 +44,6 @@ def test_linux_follows_the_xdg_defaults(monkeypatch, no_home_override):
     assert log_dir() == no_home_override / ".local" / "state" / "kiwi-dl" / "logs"
 
 
-@pytest.mark.skipif(os.name == "nt", reason="XDG applies to POSIX")
 def test_linux_honours_xdg_variables_but_not_relative_ones(monkeypatch, no_home_override, tmp_path):
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
