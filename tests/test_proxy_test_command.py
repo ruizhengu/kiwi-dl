@@ -293,3 +293,25 @@ def test_a_pool_larger_than_the_thread_cap_still_reports(pool_dir, monkeypatch, 
     # verdict about a proxy that may be perfectly healthy.
     assert "no answer within" in result.output, result.output
     assert "not probed within the run budget" in result.output, result.output
+
+
+def test_a_stuck_probe_cannot_hold_the_process_open_after_the_report(monkeypatch):
+    """`concurrent.futures` joins its workers at interpreter exit, so one probe
+    stuck in a connect kept `kiwi-dl proxy test` alive for its whole timeout
+    after printing the report, and Ctrl-C printed "Aborted!" then hung as long.
+    Probe threads must be daemons: still running, but never awaited at exit."""
+    import threading
+
+    release = threading.Event()
+    monkeypatch.setattr(proxy_module, "_probe", lambda url, timeout: release.wait() or (True, ""))
+    before = set(threading.enumerate())
+    try:
+        start = time.monotonic()
+        results = proxy_module._run_probes(["http://127.0.0.1:9301"], timeout=0.2, workers=1)
+        assert time.monotonic() - start < 1.5
+        assert results == [proxy_module._NO_ANSWER]
+        stuck = [t for t in threading.enumerate() if t not in before and t.is_alive()]
+        assert stuck, "the probe should still be running"
+        assert all(t.daemon for t in stuck), "a non-daemon probe thread blocks interpreter exit"
+    finally:
+        release.set()
