@@ -126,3 +126,27 @@ def test_the_json_record_names_the_quota_and_its_reset_time(tmp_path, monkeypatc
     assert record["error_code"] == "quota_exceeded"
     assert record["quota_resets_in_seconds"] == 1800
     assert "30m" in record["error"]
+
+
+def test_a_folder_file_record_names_its_reset_time_too(tmp_path, monkeypatch):
+    """Each file of a folder download gets its own record; a quota stop on one
+    carries the reset time like the single-file record does."""
+    from kiwi_dl.commands.download_support import _folder_progress_callbacks
+    from kiwi_dl.ui.machine_output import MachineOutput
+
+    class _Progress:
+        def add_item(self, name, *args):
+            return name
+
+        def finish_item(self, *args):
+            pass
+
+    records: list[dict] = []
+    machine = MachineOutput(True)
+    monkeypatch.setattr(machine, "emit", lambda **record: records.append(record))
+    _, _, on_file_failed = _folder_progress_callbacks(_Progress(), {}, machine, lambda p: p.name)
+
+    on_file_failed(tmp_path / "a.mp4", TransferQuotaError(time_left=300))
+
+    assert records[0]["error_code"] == "quota_exceeded"
+    assert records[0]["quota_resets_in_seconds"] == 300
