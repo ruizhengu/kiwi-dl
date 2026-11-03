@@ -94,6 +94,21 @@ class _OpenSpy:
         return [c for c in self.calls if "RotatingFileHandler._open" in c or target in c]
 
 
+class _OsWith:
+    """The real `os` module, with some functions replaced, for one module to see.
+
+    Replacing `os.fstat` itself is process-wide, and pytest's own output capture
+    calls `os.fstat` once the test body returns - so the simulated failure took
+    down the test runner instead of `secure_log`.
+    """
+
+    def __init__(self, **overrides):
+        self._overrides = overrides
+
+    def __getattr__(self, name):
+        return self._overrides[name] if name in self._overrides else getattr(os, name)
+
+
 # ---------------------------------------------------------------------------
 # 1. A new primary log is owner-only at creation, verified before the first byte
 # ---------------------------------------------------------------------------
@@ -242,7 +257,7 @@ def test_a_failed_secure_open_never_falls_back_to_an_ordinary_open(
     def boom(*args, **kwargs):
         raise OSError(13, "simulated failure")
 
-    monkeypatch.setattr(os, victim, boom)
+    monkeypatch.setattr(secure_log, "os", _OsWith(**{victim: boom}))
 
     with pytest.raises(OSError):
         secure_log.append_line(path, "ours")
