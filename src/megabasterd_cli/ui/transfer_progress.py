@@ -1,9 +1,9 @@
-"""Shared transfer-progress controller used by every download/upload mode.
+"""Shared transfer-progress controller used by every download mode.
 
-One architecture for all transfer UIs (single download, parallel downloads,
-folder download, file-in-folder, single/parallel/directory upload, queue):
+One architecture for all download UIs (single download, parallel downloads,
+folder download, file-in-folder):
 
-- producers (downloader/uploader callbacks) push structured byte snapshots
+- producers (downloader callbacks) push structured byte snapshots
   into a `TransferProgress` controller;
 - the controller owns aggregation, the monotonic operation clock, and the
   item lifecycle (every item ends in exactly one terminal state);

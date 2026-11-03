@@ -1,4 +1,4 @@
-"""Atomic on-disk write for the queue file."""
+"""Atomic on-disk text writes (config, proxy pool)."""
 
 from __future__ import annotations
 

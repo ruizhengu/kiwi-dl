@@ -48,7 +48,7 @@ def config_show(ctx: click.Context) -> None:
     table.add_column("Key", style="mb.info")
     table.add_column("Value", style="mb.value")
     for key, value in asdict(cfg).items():
-        # Secret values are redacted; elc_accounts is recursively scrubbed.
+        # Secret values are redacted.
         table.add_row(key, str(display_value(key, value)))
     _console.print(table)
 

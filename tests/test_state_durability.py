@@ -9,10 +9,9 @@ A1 - `mark_chunk_done` accepted a MAC of any length, so the WRITE path could
      bytes were never fsynced, so the state file could outlive the data it
      vouches for. `clear_state` unlinked outside the save lock.
 
-B2 - `metadata` was validated only as "is a dict". The uploader then read
-     `aes_key`/`nonce`/`completion_token` through `bytes.fromhex` (which raises
-     TypeError, not ValueError, for a JSON number - escaping the uploader's
-     self-heal) and POSTed the whole local file to whatever `upload_url` said.
+B2 - `metadata` was validated only as "is a dict". The downloader then read
+     `aes_key`/`nonce` through `bytes.fromhex`, which raises TypeError, not
+     ValueError, for a JSON number - escaping every self-heal.
 """
 
 from __future__ import annotations
@@ -36,7 +35,6 @@ from megabasterd_cli.core.state import (
 )
 
 MAC = b"\xaa" * 16
-UPLOAD_URL = "https://gfs270n123.userstorage.mega.co.nz/ul/fake"
 
 
 def _download_state(destination, **overrides) -> TransferState:
@@ -57,18 +55,16 @@ def _download_state(destination, **overrides) -> TransferState:
     return TransferState(**kwargs)
 
 
-def _upload_doc(**metadata_overrides) -> dict:
+def _download_doc(**metadata_overrides) -> dict:
     metadata = {
-        "upload_url": UPLOAD_URL,
         "aes_key": bytes(range(16)).hex(),
         "nonce": bytes(range(8)).hex(),
-        "completion_token": b"TOKEN".hex(),
     }
     metadata.update(metadata_overrides)
     return {
-        "transfer_type": "upload",
-        "source": "/local/file.bin",
-        "destination": "/state/file.upload",
+        "transfer_type": "download",
+        "source": "https://mega.nz/file/FAKEFILE#<key>",
+        "destination": "/state/file.bin",
         "total_size": 1024,
         "format_version": 1,
         "completed_chunks": [],
@@ -281,36 +277,26 @@ BAD_METADATA = {
     "nonce-is-a-list": {"nonce": []},
     "nonce-wrong-length": {"nonce": "aa" * 16},
     "nonce-not-hex": {"nonce": "zzzzzzzzzzzzzzzz"},
-    "token-is-a-number": {"completion_token": 42},
-    "token-not-hex": {"completion_token": "nothex!!"},
-    "token-odd-length": {"completion_token": "abc"},
-    "token-oversized": {"completion_token": "aa" * 9000},
-    "url-is-a-number": {"upload_url": 8080},
-    "url-plain-http": {"upload_url": "http://gfs.userstorage.mega.co.nz/ul"},
-    "url-loopback": {"upload_url": "https://127.0.0.1/ul"},
-    "url-metadata-service": {"upload_url": "https://169.254.169.254/ul"},
-    "url-with-credentials": {"upload_url": "https://a:b@gfs.userstorage.mega.co.nz/ul"},
-    "url-attacker-host": {"upload_url": "https://attacker.example/ul"},
-    "url-lookalike-host": {"upload_url": "https://mega.co.nz.attacker.example/ul"},
-    "source-identity-not-a-dict": {"source_identity": "trust me"},
+    "proxied-not-a-dict": {"proxied_chunks": ["0"]},
+    "proxied-key-not-an-index": {"proxied_chunks": {"x": "ab" * 8}},
+    "proxied-fingerprint-not-hex": {"proxied_chunks": {"0": "zz" * 8}},
 }
 
 
 @pytest.mark.parametrize("metadata", list(BAD_METADATA.values()), ids=list(BAD_METADATA))
 def test_bad_metadata_raises_state_corruption_error(metadata):
     with pytest.raises(StateCorruptionError):
-        validate_state_dict(_upload_doc(**metadata))
+        validate_state_dict(_download_doc(**metadata))
 
 
 @pytest.mark.parametrize("metadata", list(BAD_METADATA.values()), ids=list(BAD_METADATA))
 def test_bad_metadata_is_quarantined_at_load_not_raised_at_use(tmp_path, metadata):
     """A JSON-number `aes_key` used to survive load and then raise a raw
-    TypeError out of `bytes.fromhex` - which the uploader's
-    `except (KeyError, ValueError)` self-heal did not catch, so the poisoned
-    file broke every later retry."""
+    TypeError out of `bytes.fromhex`, so the poisoned file broke every later
+    retry instead of being set aside once."""
     destination = tmp_path / "out.bin"
     path = state_path_for(destination)
-    doc = _upload_doc(**metadata)
+    doc = _download_doc(**metadata)
     doc["destination"] = str(destination)
     payload = json.dumps(doc)
     path.write_text(payload, encoding="utf-8")
@@ -320,15 +306,14 @@ def test_bad_metadata_is_quarantined_at_load_not_raised_at_use(tmp_path, metadat
     assert len(backups) == 1 and backups[0].read_text(encoding="utf-8") == payload
 
 
-def test_valid_upload_metadata_still_loads(tmp_path):
+def test_valid_download_metadata_still_loads(tmp_path):
     destination = tmp_path / "out.bin"
-    doc = _upload_doc()
+    doc = _download_doc()
     doc["destination"] = str(destination)
     state_path_for(destination).write_text(json.dumps(doc), encoding="utf-8")
 
     state = load_state(destination)
     assert state is not None
-    assert state.metadata["upload_url"] == UPLOAD_URL
     assert bytes.fromhex(state.metadata["aes_key"]) == bytes(range(16))
     assert not list(tmp_path.glob("out.bin.mbstate.corrupt.*"))
 

@@ -1,10 +1,9 @@
 """The batch-completion hook: ONE notification per run, not one per file.
 
 `run_command` fires per transferred file, so it cannot express "everything is
-done" - the last file's hook has no way to know it was the last. Upstream
-MegaBasterd notifies when ALL downloads / ALL uploads have finished; that is
-the event `all_finished_command` provides: exactly one spawn per `mb download`
-/ `mb upload` invocation, with `<kind> <succeeded> <failed>` appended.
+done" - the last file's hook has no way to know it was the last. That is the
+event `all_finished_command` provides: exactly one spawn per download command,
+with `download <succeeded> <failed>` appended.
 """
 
 from __future__ import annotations
@@ -20,10 +19,8 @@ from click.testing import CliRunner
 import megabasterd_cli.utils.hooks as hooks_module
 from megabasterd_cli.cli import cli
 from megabasterd_cli.config import Config, ConfigStore
-from megabasterd_cli.core.client import MegaClient, MegaSession
 from megabasterd_cli.core.downloader import DownloadResult, MegaDownloader
-from megabasterd_cli.core.errors import MegaError, TransferError
-from megabasterd_cli.core.uploader import MegaUploader, UploadResult
+from megabasterd_cli.core.errors import TransferError
 from megabasterd_cli.utils.hooks import run_all_finished_command
 
 FILE_URL = "https://mega.nz/file/abc123#xyz"
@@ -76,28 +73,6 @@ def download_env(tmp_path, monkeypatch):
     return tmp_path
 
 
-@pytest.fixture()
-def upload_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
-    _configure(tmp_path, all_finished_command=HOOK)
-
-    from megabasterd_cli.accounts.manager import AccountManager
-    from megabasterd_cli.config import accounts_file
-
-    mgr = AccountManager(accounts_file())
-    mgr.unlock("pp")
-    mgr.add_account("a@example.com", "pw-a", make_default=True)
-
-    def fake_login(self, email, password, mfa_code=None, mfa_prompt=None):
-        self.session = MegaSession(sid=f"sid-{email}", master_key=b"\x00" * 16, email=email)
-        return self.session
-
-    monkeypatch.setattr(MegaClient, "login", fake_login)
-    monkeypatch.setattr(MegaClient, "logout", lambda self: None)
-    return tmp_path
-
-
 def _downloader(failing: str | None = None):
     def download_link(self, url, output_dir, **kwargs):
         if failing and failing in url:
@@ -108,15 +83,6 @@ def _downloader(failing: str | None = None):
         return DownloadResult(path=path, size=1, elapsed_seconds=0.1, integrity_ok=True)
 
     return download_link
-
-
-def _uploader(failing: str | None = None):
-    def upload_file(self, source, **kwargs):
-        if failing and source.name == failing:
-            raise MegaError(message="upload failed")
-        return UploadResult(file_handle="H", name=source.name, size=64, elapsed_seconds=0.1)
-
-    return upload_file
 
 
 def _hook_calls(spawns) -> list[list[str]]:
@@ -217,73 +183,6 @@ def test_a_broken_batch_hook_does_not_fail_the_batch(download_env, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_upload_batch_hook_fires_once_for_parallel_files(upload_env, spawns, monkeypatch):
-    from tests.upload_helpers import files as _files
-
-    monkeypatch.setattr(MegaUploader, "upload_file", _uploader())
-    files = _files(upload_env, 3)
-    result = CliRunner().invoke(
-        cli, ["-q", "upload", *files, "-P", "2", "--vault-passphrase", "pp"]
-    )
-    assert result.exit_code == 0, result.output
-    assert len(spawns) == 1, f"expected one batch hook, got {_hook_calls(spawns)}"
-    assert spawns[0][0][-3:] == ["upload", "3", "0"]
-
-
-def test_upload_batch_hook_counts_a_failed_item(upload_env, spawns, monkeypatch):
-    from tests.upload_helpers import files as _files
-
-    monkeypatch.setattr(MegaUploader, "upload_file", _uploader(failing="f1.bin"))
-    files = _files(upload_env, 2)
-    result = CliRunner().invoke(
-        cli, ["-q", "upload", *files, "-P", "2", "--vault-passphrase", "pp"]
-    )
-    assert result.exit_code == 1, result.output
-    assert len(spawns) == 1
-    assert spawns[0][0][-3:] == ["upload", "1", "1"]
-
-
-def test_keep_going_directory_upload_still_ends_the_batch(upload_env, spawns, monkeypatch):
-    """--keep-going keeps the successful files AND must still fire once."""
-    tree = upload_env / "tree"
-    tree.mkdir()
-    (tree / "ok.bin").write_bytes(b"x" * 64)
-    (tree / "bad.bin").write_bytes(b"x" * 64)
-
-    def fake_directory(self, source_dir, **kwargs):
-        entries = sorted(p for p in Path(source_dir).rglob("*") if p.is_file())
-        on_manifest = kwargs.get("on_manifest")
-        if on_manifest:
-            on_manifest([(p, p.stat().st_size) for p in entries])
-        on_file_done = kwargs.get("on_file_done")
-        good = next(p for p in entries if p.name == "ok.bin")
-        if on_file_done:
-            on_file_done(
-                UploadResult(file_handle="H", name=good.name, size=64, elapsed_seconds=0.1),
-                good,
-            )
-        bad = next(p for p in entries if p.name == "bad.bin")
-        self.last_directory_failures = [f"{bad}: boom"]
-        return []
-
-    monkeypatch.setattr(MegaUploader, "upload_directory", fake_directory)
-    result = CliRunner().invoke(
-        cli,
-        [
-            "-q",
-            "upload",
-            str(tree),
-            "--keep-structure",
-            "--keep-going",
-            "--vault-passphrase",
-            "pp",
-        ],
-    )
-    assert result.exit_code == 1, result.output
-    assert len(spawns) == 1, f"expected one batch hook, got {_hook_calls(spawns)}"
-    assert spawns[0][0][-3] == "upload"
-
-
 # ---------------------------------------------------------------------------
 # The hook helper itself
 # ---------------------------------------------------------------------------
@@ -301,15 +200,15 @@ def test_helper_skips_an_unconfigured_hook(spawns):
 
 
 def test_outcome_is_appended_as_three_argv_items(spawns):
-    run_all_finished_command('tool --dir "C:\\My Files"', kind="upload", succeeded=4, failed=2)
+    run_all_finished_command('tool --dir "C:\\My Files"', kind="download", succeeded=4, failed=2)
     argv = spawns[0][0]
-    assert argv[-3:] == ["upload", "4", "2"]
+    assert argv[-3:] == ["download", "4", "2"]
     assert argv[:-3] == hooks_module.parse_hook_command('tool --dir "C:\\My Files"')
 
 
 def test_hook_arguments_are_not_logged(spawns, caplog):
     with caplog.at_level("INFO", logger="megabasterd_cli.utils.hooks"):
-        run_all_finished_command("tool --token SUPERSECRET", kind="upload", succeeded=1, failed=0)
+        run_all_finished_command("tool --token SUPERSECRET", kind="download", succeeded=1, failed=0)
     joined = " ".join(record.getMessage() for record in caplog.records)
     assert "SUPERSECRET" not in joined
     assert "tool" in joined
@@ -320,64 +219,3 @@ def test_hook_never_uses_a_shell(spawns):
     argv, kwargs = spawns[0]
     assert isinstance(argv, list)
     assert kwargs.get("shell") in (None, False)
-
-
-# ---------------------------------------------------------------------------
-# `queue run` - the third batch surface
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def queue_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("MEGABASTERD_USER_DIR", str(tmp_path / "user"))
-    monkeypatch.setenv("MEGABASTERD_LOG_DIR", str(tmp_path / "logs"))
-    _configure(tmp_path, all_finished_command=HOOK)
-    return tmp_path
-
-
-def test_a_queue_run_fires_once_for_the_whole_run(queue_env, monkeypatch, spawns):
-    """The surface that most wants this hook: the one left running overnight.
-
-    `download` and `upload` are usually watched; `queue run` is the unattended
-    one, so a hook that fires for the first two and silently not for this one
-    is the worst of the three gaps.
-    """
-    monkeypatch.setattr(MegaDownloader, "download_link", _downloader())
-    runner = CliRunner()
-    for url in (FILE_URL, FILE_URL_2):
-        assert (
-            runner.invoke(
-                cli, ["-q", "queue", "add-download", url, "-o", str(queue_env / "out")]
-            ).exit_code
-            == 0
-        )
-
-    result = runner.invoke(cli, ["-q", "queue", "run"])
-
-    assert result.exit_code == 0, result.output
-    assert _hook_calls(spawns) == [["notify.exe", "--flag", "queue", "2", "0"]]
-
-
-def test_a_queue_run_counts_a_failed_job(queue_env, monkeypatch, spawns):
-    monkeypatch.setattr(MegaDownloader, "download_link", _downloader(failing="def456"))
-    runner = CliRunner()
-    for url in (FILE_URL, FILE_URL_2):
-        assert (
-            runner.invoke(
-                cli, ["-q", "queue", "add-download", url, "-o", str(queue_env / "out")]
-            ).exit_code
-            == 0
-        )
-
-    result = runner.invoke(cli, ["-q", "queue", "run"])
-
-    assert result.exit_code == 1, result.output
-    assert _hook_calls(spawns) == [["notify.exe", "--flag", "queue", "1", "1"]]
-
-
-def test_an_empty_queue_never_fires(queue_env, spawns):
-    """Nothing was attempted, so there is no batch whose end to announce."""
-    result = CliRunner().invoke(cli, ["-q", "queue", "run"])
-
-    assert result.exit_code == 0, result.output
-    assert _hook_calls(spawns) == []

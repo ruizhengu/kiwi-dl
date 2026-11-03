@@ -1,4 +1,4 @@
-"""One progress ticker, shared by the downloader and the uploader.
+"""One progress ticker for the downloader.
 
 Both transfer loops need the same thing and had a private copy of it: emit
 progress on a steady clock while work is in flight, then one final synchronous

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from megabasterd_cli import launcher_menu as lm
 from megabasterd_cli.ui import prompts
 from megabasterd_cli.ui.theme import THEME, styled_prompt
 
@@ -31,10 +30,6 @@ def _render(text) -> str:
     with console.capture() as captured:
         console.print(text, end="")
     return captured.get()
-
-
-def test_the_launcher_uses_the_shared_styler_not_a_copy():
-    assert lm._styled_prompt is styled_prompt
 
 
 def test_the_cli_prompt_uses_the_shared_styler():

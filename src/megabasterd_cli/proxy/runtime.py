@@ -35,7 +35,7 @@ class ProxyPoolCorruptionError(Exception):
     Every command that honours smart-proxy settings loads this file, so an
     unvalidated payload used to escape as an AttributeError/TypeError from the
     middle of the loader (`'list' object has no attribute 'get'`). Failing with
-    one typed, actionable error keeps download/upload/stream reporting the real
+    one typed, actionable error keeps every command reporting the real
     problem, and mutations stay blocked so a corrupt pool is never silently
     replaced by an empty one.
     """

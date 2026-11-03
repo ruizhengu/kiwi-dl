@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from megabasterd_cli.config import accounts_file, config_file, data_dir, user_dir
+from megabasterd_cli.config import config_file, data_dir, user_dir
 
 
 def _repo_user_dir() -> Path:
@@ -39,25 +39,8 @@ def test_the_user_dir_env_var_is_always_set_during_a_test():
 
 def test_every_resolved_path_stays_out_of_the_real_user_dir():
     real = _repo_user_dir()
-    for resolver in (user_dir, data_dir, config_file, accounts_file):
+    for resolver in (user_dir, data_dir, config_file):
         resolved = Path(resolver()).resolve()
         assert (
             real != resolved and real not in resolved.parents
         ), f"{resolver.__name__}() resolves inside the real user dir: {resolved}"
-
-
-def test_the_isolated_vault_starts_empty():
-    """Each test gets its own dir, so one cannot inherit another's accounts."""
-    assert not accounts_file().exists()
-
-
-def test_writing_a_credential_lands_in_the_isolated_dir(tmp_path):
-    """The exact operation that escaped: a real AccountManager save."""
-    from megabasterd_cli.accounts.manager import AccountManager
-
-    manager = AccountManager(accounts_file())
-    manager.unlock("test-passphrase")
-    manager.add_account("someone@example.invalid", "pw")
-
-    assert accounts_file().exists()
-    assert _repo_user_dir() not in accounts_file().resolve().parents

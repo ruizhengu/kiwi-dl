@@ -63,11 +63,3 @@ def test_password_link_resolve_to_normal():
     from megabasterd_cli.core.crypto import b64_url_decode
 
     assert b64_url_decode(resolved.public_id) == public_handle
-
-
-def test_megacrypter_link_parsed():
-    url = "mc://example.com/abcdef"
-    parsed = parse_link(url)
-    assert parsed.type == LinkType.MEGACRYPTER
-    assert parsed.crypter_server == "example.com"
-    assert parsed.crypter_token == "abcdef"

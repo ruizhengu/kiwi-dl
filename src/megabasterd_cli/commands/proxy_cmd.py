@@ -13,20 +13,17 @@ from urllib.parse import parse_qsl, urlsplit
 import click
 
 from ..proxy.runtime import _load_persisted_pool, _pool_path
-from ..queue.storage import atomic_write_text
-from ..ui.prompts import confirmed, print_error, print_info, print_success, print_warn
+from ..ui.prompts import confirmed, print_error, print_info, print_success
 from ..ui.theme import SafeTable, make_console
+from ..utils.atomic import atomic_write_text
 from ..utils.filelock import FileLock
 from ..utils.redaction import REDACTED, redact_text
 
 _console = make_console()
 
-# Matches the other persisted stores (config, queue, state): long enough for a
+# Matches the other persisted stores (config, state): long enough for a
 # concurrent `mb proxy add` to finish, short enough to fail with a clear error.
 _POOL_LOCK_TIMEOUT_SECONDS = 10.0
-# Cap on a fetched proxy list. The URL is user-supplied and may be hostile, so
-# the body is streamed and cut off instead of being read into memory whole.
-MAX_FETCH_BYTES = 4 * 1024 * 1024
 
 
 @contextmanager
@@ -90,9 +87,9 @@ def proxy_list(ctx: click.Context, config_urls: bool) -> None:
     if not entries:
         _console.print("[mb.dim]No proxies stored.[/mb.dim]")
         return
-    # SafeTable, not Table: these URLs come from `proxy fetch` (a remote public
-    # list) and `proxy import` (an arbitrary file), so a cell is untrusted. One
-    # poisoned line with an unbalanced tag used to brick `proxy list` for good.
+    # SafeTable, not Table: these URLs come from `proxy import` (an arbitrary
+    # file) or a pasted list, so a cell is untrusted. One poisoned line with an
+    # unbalanced tag used to brick `proxy list` for good.
     table = SafeTable(
         title="Smart Proxy Pool",
         show_header=True,
@@ -165,84 +162,6 @@ def proxy_import(path: Path) -> None:
     print_success(f"Imported {added} proxy/proxies.")
 
 
-# Default public proxy-list endpoints. Each one returns plain text, one
-# host:port per line. The fetched entries get the supplied scheme prefix.
-_DEFAULT_FETCH_SOURCES = {
-    "http": [
-        "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000",
-        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
-    ],
-    "socks4": [
-        "https://api.proxyscrape.com/v2/?request=getproxies&protocol=socks4&timeout=10000",
-        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt",
-    ],
-    "socks5": [
-        "https://api.proxyscrape.com/v2/?request=getproxies&protocol=socks5&timeout=10000",
-        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
-    ],
-}
-
-
-@proxy_cmd.command("serve", short_help="Run a local CONNECT proxy that tunnels to MEGA.")
-@click.option("-p", "--port", type=int, default=None, help="TCP port to bind on 127.0.0.1.")
-@click.option(
-    "--password",
-    default=None,
-    help="Basic-Auth password clients must present (else uses config value).",
-)
-@click.option(
-    "--any-port",
-    is_flag=True,
-    help="Allow CONNECT to any TCP port (default: 443 only).",
-)
-@click.pass_context
-def proxy_serve(ctx: click.Context, port: int | None, password: str | None, any_port: bool) -> None:
-    """Run a local HTTPS CONNECT proxy that only forwards traffic to mega.nz.
-
-    Configure any HTTP client to point at http://127.0.0.1:<port> as its HTTPS
-    proxy (with the supplied Basic-Auth credentials) to route MEGA traffic
-    through this process.
-    """
-    from ..proxy.connect_proxy import MegaConnectProxy
-
-    cfg = ctx.obj["config"]
-    port = port or cfg.connect_proxy_port
-    password = password or cfg.connect_proxy_password
-    if not password:
-        print_error(
-            "No proxy password set. Use --password or "
-            "`mb config set connect_proxy_password <secret>`."
-        )
-        ctx.exit(1)
-
-    proxy = MegaConnectProxy(
-        password=password,
-        port=port,
-        allow_any_port=any_port or cfg.connect_proxy_allow_any_port,
-    )
-    proxy.start()
-    print_success(f"MEGA CONNECT proxy running on 127.0.0.1:{port}")
-    print_info("Configure other apps to use this address as an HTTPS proxy.")
-    print_info("Press Ctrl+C to stop.")
-    try:
-        import threading
-
-        # A bare `Event().wait()` is not interruptible by Ctrl-C on Windows,
-        # so the wait is polled: the KeyboardInterrupt is delivered between
-        # timeouts and shutdown actually runs.
-        forever = threading.Event()
-        while not forever.wait(0.5):
-            pass
-    except KeyboardInterrupt:
-        print_info("Stopped.")
-    finally:
-        # Any exit path must release the listener and the accepted sockets.
-        proxy.stop()
-
-
-# Query parameters whose value is credential-ish. Deliberately wider than the
-# exact names `redact_text` knows, because a signed URL names its signature
-# `sig`, `X-Amz-Signature`, `hmac`, ... and any of them identifies the caller.
 _SECRETISH_PARAM = re.compile(r"(?i)(token|key|sig|hmac|secret|auth|pass|cred|session|sid|nonce)")
 
 
@@ -300,144 +219,6 @@ def _safe_exc(exc: BaseException, secrets: list[str]) -> str:
     return f"{type(exc).__name__}: {_scrub(str(exc), secrets)}"
 
 
-def _safe_fetch_error(url: str, exc: BaseException, secrets: list[str]) -> str:
-    """A structured, display-safe line for one failed source.
-
-    Never `f"{url}: {exc}"`: both halves repeat whatever secret the user put in
-    `--source`.
-
-    `secrets` covers EVERY source of this run, not only the one that failed: a
-    redirect or fallback makes the error for source A quote source B's URL.
-    """
-    return f"{_safe_source(url)}: {_safe_exc(exc, secrets)}"
-
-
-def _read_capped(resp) -> str:
-    """Read at most MAX_FETCH_BYTES of a streamed response body.
-
-    `resp.text` buffers the whole body, so a proxy-list URL — which the user
-    may have copied from anywhere — could stream gigabytes into memory. The
-    partial final line is dropped so truncation cannot invent a mangled entry.
-    """
-    chunks: list[bytes] = []
-    total = 0
-    for chunk in resp.iter_content(chunk_size=65536):
-        if not chunk:
-            continue
-        chunks.append(chunk)
-        total += len(chunk)
-        if total >= MAX_FETCH_BYTES:
-            break
-    body = b"".join(chunks)
-    if total >= MAX_FETCH_BYTES:
-        print_warn(f"Proxy list truncated at {MAX_FETCH_BYTES} bytes.")
-        body = body.rpartition(b"\n")[0]
-    return body.decode("utf-8", errors="replace")
-
-
-@proxy_cmd.command("fetch", short_help="Auto-fetch free proxies from a public list.")
-@click.option(
-    "--protocol",
-    type=click.Choice(["http", "socks4", "socks5"]),
-    default="http",
-    show_default=True,
-)
-@click.option("--source", default=None, help="Override the source URL.")
-@click.option(
-    "--limit",
-    type=int,
-    default=200,
-    show_default=True,
-    help="Maximum number of proxies to add from the fetched list.",
-)
-@click.option("--timeout", type=int, default=20, show_default=True)
-@click.pass_context
-def proxy_fetch(
-    ctx: click.Context, protocol: str, source: str | None, limit: int, timeout: int
-) -> None:
-    """Pull a list of free proxies from a public source and add them to the pool."""
-    import requests
-
-    sources = [source] if source else _DEFAULT_FETCH_SOURCES.get(protocol, [])
-    if not sources:
-        print_error(f"No fetch source configured for protocol {protocol}")
-        ctx.exit(1)
-
-    # No pool read here: the egress proxy for the fetch comes from the
-    # selector below, and the pool that gets WRITTEN is re-read inside the
-    # transaction, so there is nothing to load up front.
-    fetched: list[str] = []
-    # Fetching the proxy list is itself outbound traffic, so it obeys the same
-    # policy: under force mode it routes through an already-known proxy and is
-    # refused when none exists (bootstrap a first proxy with `mb proxy add`).
-    from ..proxy.selector import ProxyRequiredError, ProxySelector
-
-    selector = ProxySelector.from_config(ctx.obj["config"])
-    added = 0
-    errors: list[str] = []
-    # Every source in this run is user-supplied, and any of them can surface in
-    # any error message, so they are scrubbed as one set.
-    secrets = sorted(
-        {s for u in sources for s in _url_secrets(u)},
-        key=len,
-        reverse=True,
-    )
-    for url in sources:
-        try:
-            request_proxies, _picked = selector.select()
-            resp = requests.get(url, timeout=timeout, proxies=request_proxies, stream=True)
-            try:
-                resp.raise_for_status()
-                body = _read_capped(resp)
-            finally:
-                resp.close()
-        except ProxyRequiredError as exc:
-            print_error(redact_text(str(exc)))
-            ctx.exit(1)
-        except Exception as exc:  # noqa: BLE001
-            # Sanitized at APPEND time, not at print time: `errors` is the one
-            # thing that outlives this frame, so a future consumer of it
-            # (machine output, a log line) cannot reintroduce the leak.
-            errors.append(_safe_fetch_error(url, exc, secrets))
-            continue
-        for raw in body.splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            if added >= limit:
-                break
-            if "://" not in line:
-                line = f"{protocol}://{line}"
-            fetched.append(line)
-            added += 1
-        if added >= limit:
-            break
-
-    if added == 0:
-        # One line per source. The old `Errors: {errors}` printed a Python repr
-        # of raw exception strings - the source URL and its credentials twice.
-        print_error(f"No proxies fetched ({len(errors)} source error(s)).")
-        for e in errors:
-            print_error(e)
-        # A reported failure must not exit 0; the ProxyRequiredError branch
-        # above already used ctx.exit(1) inside this same function.
-        ctx.exit(1)
-
-    # The lock is taken only for the merge, never across the network fetch -
-    # holding it for a multi-second HTTP round trip would stall every other
-    # proxy command for no benefit.
-    with pool_transaction() as live:
-        for url in fetched:
-            live.add(url)
-    print_success(f"Fetched {added} {protocol} proxy/proxies.")
-    if errors:
-        for e in errors:
-            print_error(e)
-
-
-# Concurrency cap for `proxy test`. Same number and same reasoning as
-# `connect_proxy.MAX_PROXY_THREADS`: one mostly-idle socket per thread, so a
-# fetched 200-entry list is worth probing wide, but not unboundedly wide.
 MAX_PROBE_THREADS = 64
 
 
@@ -446,11 +227,11 @@ def _probe(url: str, timeout: float) -> tuple[bool, str]:
 
     Returns `(reachable, latency-or-reason)`. The reason is scrubbed HERE, not
     at print time, so a future consumer of the result cannot reintroduce the
-    leak - same rule as the `errors` list in `proxy fetch`.
+    leak.
 
-    ponytail: TCP reachability only. It proves the port answers, not that the
-    peer speaks HTTP CONNECT or SOCKS5 - but a dead host is what kills the
-    overwhelming majority of a fetched free-proxy list, and a real handshake
+    TCP reachability only. It proves the port answers, not that the peer
+    speaks HTTP CONNECT or SOCKS5 - but a dead host is the commonest failure
+    of a proxy list, and a real handshake
     needs a third-party host to tunnel to, i.e. this command would have to send
     someone else's server traffic to find out. Add the handshake if "answers
     but does not proxy" shows up in practice.
@@ -513,8 +294,8 @@ def proxy_test(ctx: click.Context) -> None:
         executor.shutdown(wait=False, cancel_futures=True)
 
     # SafeTable, not Table, for the same reason as `proxy list`: these URLs come
-    # from `proxy fetch` (a remote public list) and `proxy import` (an arbitrary
-    # file), so one poisoned line with an unbalanced tag would kill the render.
+    # from `proxy import` (an arbitrary file), so one poisoned line with an
+    # unbalanced tag would kill the render.
     table = SafeTable(
         title="Proxy Reachability",
         show_header=True,
@@ -545,5 +326,5 @@ def proxy_test(ctx: click.Context) -> None:
     _console.print(table)
     print_info(f"{reachable}/{len(entries)} reachable.")
     if not reachable:
-        # Matches `proxy fetch`/`proxy serve`: a reported failure never exits 0.
+        # A reported failure never exits 0.
         ctx.exit(1)

@@ -1,8 +1,8 @@
 """Turn a user-supplied link into everything a transfer needs to start.
 
-A public link is not directly downloadable: it may be a password wrapper, an
-encrypted container, a MegaCrypter token, a plain file, or a file inside a
-public folder share. Each of those resolves to the same five facts - a CDN
+A public link is not directly downloadable: it may be a password wrapper, a
+plain file, or a file inside a public folder share. Each of those resolves to
+the same five facts - a CDN
 URL, a declared size, the AES key/nonce/MAC-IV, a destination path, and a
 resolver closure that can mint a FRESH CDN URL when the current one expires.
 
@@ -22,16 +22,10 @@ from ..utils.helpers import ensure_within_directory, sanitize_filename
 from .crypto import b64_url_decode, bytes_to_a32, decrypt_attributes, unpack_file_key
 from .download_verify import DeclaredSizeError
 from .errors import TransferError
-from .link_services import (
-    get_megacrypter_download_url,
-    get_megacrypter_info,
-    resolve_megacrypter_link,
-)
 from .links import (
     LinkType,
     parse_link,
     require_link_key,
-    resolve_encrypted_container_link,
     resolve_password_link,
 )
 
@@ -81,27 +75,11 @@ def resolve_download_source(
     """Resolve `url` down to a concrete, downloadable source."""
     parsed = parse_link(url)
 
-    # Transparently resolve password / MegaCrypter wrappers down to a
-    # standard file/folder link.
+    # Resolve a password-protected link down to a standard file/folder link.
     if parsed.type == LinkType.PASSWORD_PROTECTED:
         if not password:
             raise ValueError("This link is password-protected; supply password=")
         parsed = resolve_password_link(parsed, password)
-    elif parsed.type == LinkType.ENCRYPTED_CONTAINER:
-        parsed = resolve_encrypted_container_link(parsed)
-    elif parsed.type == LinkType.MEGACRYPTER:
-        mc_parsed = parsed
-        try:
-            parsed = resolve_megacrypter_link(
-                parsed,
-                timeout=dl.timeout,
-                password=password,
-                selector=dl._selector,
-            )
-        except ValueError as exc:
-            return _resolve_megacrypter_direct(
-                dl, mc_parsed, output_dir, password, rename_to, cause=exc
-            )
 
     if parsed.type not in (LinkType.FILE, LinkType.FILE_IN_FOLDER):
         raise ValueError(f"Link is not a single-file link: {parsed.type}")
@@ -212,60 +190,3 @@ def _resolve_folder_file(dl, parsed) -> tuple[dict, list[int], bytes]:
     if "g" not in info:
         raise TransferError(message=f"No download URL returned for folder-file: {info}")
     return info, key_a32, b64_url_decode(file_raw.get("a", "") or "")
-
-
-def _resolve_megacrypter_direct(
-    dl,
-    mc_parsed,
-    output_dir: Path,
-    password: str | None,
-    rename_to: str | None,
-    cause: Exception,
-) -> ResolvedSource:
-    """Fallback when a MegaCrypter link will not unwrap to a mega.nz link.
-
-    The crypter itself then serves the bytes, so its metadata endpoint supplies
-    the key/size and its download endpoint supplies (and re-mints) the URL.
-    """
-    mc_info = get_megacrypter_info(
-        mc_parsed,
-        timeout=dl.timeout,
-        password=password,
-        selector=dl._selector,
-    )
-    if not mc_info.key or mc_info.size is None:
-        raise ValueError("MegaCrypter metadata is missing key or size") from cause
-    cdn_url = get_megacrypter_download_url(
-        mc_parsed,
-        info=mc_info,
-        timeout=dl.timeout,
-        password=password,
-        selector=dl._selector,
-    )
-    key_a32 = bytes_to_a32(decode_link_key(mc_info.key, 32, "MegaCrypter file"))
-    aes_key, nonce, mac_iv_a32 = unpack_file_key(key_a32)
-    filename = rename_to or sanitize_filename(
-        mc_info.name or mc_parsed.crypter_token or "megacrypter"
-    )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    destination = output_dir / filename
-    ensure_within_directory(output_dir, destination)
-
-    def _resolver() -> str:
-        return get_megacrypter_download_url(
-            mc_parsed,
-            info=mc_info,
-            timeout=dl.timeout,
-            password=password,
-            selector=dl._selector,
-        )
-
-    return ResolvedSource(
-        cdn_url=cdn_url,
-        file_size=mc_info.size,
-        aes_key=aes_key,
-        nonce=nonce,
-        mac_iv_a32=mac_iv_a32,
-        destination=destination,
-        url_resolver=_resolver,
-    )

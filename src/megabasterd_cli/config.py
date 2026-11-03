@@ -7,10 +7,10 @@ import json
 import logging
 import os
 import threading
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
-from .queue.storage import atomic_write_text
+from .utils.atomic import atomic_write_text
 from .utils.corruption import existing_backup_for, preserve_corrupt_file
 from .utils.filelock import FileLock, FileLockError
 
@@ -55,18 +55,15 @@ _warned_config_keys: set[str] = set()
 
 # Fields whose dataclass default is None still have an expected value type.
 _OPTIONAL_STR_KEYS = {
-    "default_account",
     "smart_proxy_url",
     "run_command",
     "all_finished_command",
-    "upload_log_path",
-    "connect_proxy_password",
-    "megacrypter_server",
 }
 
 # Values of these keys may contain secrets and are never echoed in warnings
-# or `config show`/`config get`.
-_SECRET_CONFIG_KEYS = {"connect_proxy_password", "elc_accounts"}
+# or `config show`/`config get`. (`smart_proxy_url` can carry credentials too;
+# `display_value` scrubs every string.)
+_SECRET_CONFIG_KEYS: set[str] = set()
 
 
 def _warn_once(key: str, message: str) -> None:
@@ -75,29 +72,14 @@ def _warn_once(key: str, message: str) -> None:
         log.warning("%s", message)
 
 
-def _valid_elc_accounts(value) -> bool:
-    """`elc_accounts` must be {host: {field: str}} end to end."""
-    if not isinstance(value, dict):
-        return False
-    for host, entry in value.items():
-        if not isinstance(host, str) or not isinstance(entry, dict):
-            return False
-        if not all(isinstance(k, str) and isinstance(v, str) for k, v in entry.items()):
-            return False
-    return True
-
-
 @dataclass
 class Config:
     """User-tunable settings."""
 
     download_path: str = ""  # Defaults to <project>/Output
     max_workers: int = 8
-    upload_workers: int = 4
     max_parallel_downloads: int = 6  # Number of files downloading simultaneously
-    max_parallel_uploads: int = 1  # Number of files uploading simultaneously
     speed_limit_kbps: float = 0  # Aggregate per-command download cap; 0 = unlimited
-    upload_speed_limit_kbps: float = 0  # Aggregate per-command upload cap; 0 = unlimited
     verify_integrity: bool = True
     smart_proxy_enabled: bool = False
     smart_proxy_url: str | None = None
@@ -114,16 +96,11 @@ class Config:
     timeout_seconds: int = 60
     auto_resume: bool = True
     keep_state_files_on_error: bool = True
-    default_account: str | None = None
-    streaming_port: int = 8080
-    streaming_host: str = "127.0.0.1"
     log_level: str = "WARNING"
     log_to_file: bool = True
     log_max_bytes: int = 5_000_000
     log_backups: int = 5
     user_agent: str = ""  # Empty = "MegaBasterd-CLI/<version>"
-    megacrypter_server: str | None = None  # Default MegaCrypter server for `crypter` commands
-    elc_accounts: dict[str, dict[str, str]] = field(default_factory=dict)
 
     # Quota recovery: wait this many seconds when MEGA returns EOVERQUOTA/-17
     quota_wait_seconds: int = 3600
@@ -132,40 +109,25 @@ class Config:
     # many seconds in total per command; 0 stops at once with the reset time.
     quota_budget_seconds: int = 0
 
-    # Post-transfer hook: run this command (with the transferred path appended
-    # as exactly one argument) after every successful download/upload.
+    # Post-transfer hook: run this command (with the downloaded path appended
+    # as exactly one argument) after every successful download.
     run_command: str | None = None
 
-    # Batch-completion hook: run this command ONCE per `mb download`, `mb
-    # upload` or `mb queue run` invocation, after every item in the run has
-    # been attempted, with `<download|upload|queue> <succeeded> <failed>`
-    # appended as three arguments. One key rather than one per surface (like
-    # `run_command` above, which also covers both directions): a single
-    # invocation is only ever one of them, and the appended kind lets one
-    # script branch.
+    # Batch-completion hook: run this command ONCE per download command, after
+    # every item has been attempted, with `download <succeeded> <failed>`
+    # appended as three arguments.
     all_finished_command: str | None = None
-
-    # Upload log file (one JSON line per upload; useful for batch jobs).
-    upload_log_path: str | None = None
 
     # Smart proxy extras
     force_smart_proxy: bool = False  # Refuse direct connections
-
-    # CONNECT proxy server
-    connect_proxy_port: int = 9999
-    connect_proxy_password: str | None = None
-    connect_proxy_allow_any_port: bool = False
 
 
 # Range/format rules applied on load and on `config set`. Each entry maps the
 # key to (predicate, human-readable requirement).
 _VALIDATORS: dict[str, tuple] = {
     "max_workers": (lambda v: 1 <= v <= 64, "an integer between 1 and 64"),
-    "upload_workers": (lambda v: 1 <= v <= 64, "an integer between 1 and 64"),
     "max_parallel_downloads": (lambda v: 1 <= v <= 32, "an integer between 1 and 32"),
-    "max_parallel_uploads": (lambda v: 1 <= v <= 32, "an integer between 1 and 32"),
     "speed_limit_kbps": (lambda v: v >= 0, "a non-negative number"),
-    "upload_speed_limit_kbps": (lambda v: v >= 0, "a non-negative number"),
     "timeout_seconds": (lambda v: v > 0, "a positive integer"),
     "quota_wait_seconds": (lambda v: v >= 0, "a non-negative integer"),
     "quota_max_wait_loops": (lambda v: v >= 0, "a non-negative integer"),
@@ -176,8 +138,6 @@ _VALIDATORS: dict[str, tuple] = {
         "an integer between 60 and 86400",
     ),
     "smart_proxy_ban_seconds": (lambda v: v >= 0, "a non-negative integer (0 = rest of the run)"),
-    "streaming_port": (lambda v: 1 <= v <= 65535, "a port between 1 and 65535"),
-    "connect_proxy_port": (lambda v: 1 <= v <= 65535, "a port between 1 and 65535"),
     "log_max_bytes": (lambda v: v >= 0, "a non-negative integer"),
     "log_backups": (lambda v: v >= 0, "a non-negative integer"),
     "log_level": (
@@ -194,11 +154,6 @@ def validate_config_value(key: str, value) -> None:
     """
     if key in _OPTIONAL_STR_KEYS and value is not None and not isinstance(value, str):
         raise ValueError(f"{key} must be a string or null (got type {type(value).__name__})")
-    if key == "elc_accounts" and not _valid_elc_accounts(value):
-        raise ValueError(
-            "elc_accounts must be a JSON object of the form "
-            '{"host": {"user": "...", "api_key": "..."}} with string values only'
-        )
     rule = _VALIDATORS.get(key)
     if rule is None:
         return
@@ -233,14 +188,6 @@ def validate_config(cfg: Config) -> list[str]:
                 )
                 setattr(cfg, f.name, default)
             continue
-        if f.name == "elc_accounts":
-            if not _valid_elc_accounts(current):
-                warnings.append(
-                    "config: elc_accounts has an invalid structure "
-                    "(expected {host: {field: string}}); using default"
-                )
-                setattr(cfg, f.name, {})
-            continue
         # Type check against the default's runtime type (None-able keys skip).
         if default is not None and current is not None:
             expected = type(default)
@@ -269,21 +216,14 @@ def validate_config(cfg: Config) -> list[str]:
 def display_value(key: str, value):
     """Redact secret config values for `config show` / `config get`.
 
-    `connect_proxy_password` shows `<redacted>` when set; `elc_accounts` has
-    its nested credential fields recursively redacted while keeping structure
-    visible. Every OTHER string falls through the shared sanitizer rather than
-    being printed verbatim: naming the two known-secret keys left
-    `smart_proxy_url` printing its `scheme://user:pass@host` in full, the same
-    value `proxy list` redacts one command over.
+    Every string goes through the shared sanitizer rather than being printed
+    verbatim, so `smart_proxy_url` never shows its `scheme://user:pass@host` -
+    the same value `proxy list` redacts one command over.
     """
-    from .utils.redaction import REDACTED, redact_text, sanitize
+    from .utils.redaction import redact_text
 
     if value is None:
         return None
-    if key == "connect_proxy_password":
-        return REDACTED
-    if key == "elc_accounts":
-        return sanitize(value, _field="elc_accounts")
     if isinstance(value, str):
         return redact_text(value)
     return value
@@ -306,14 +246,6 @@ def log_dir() -> Path:
 
 def config_file() -> Path:
     return config_dir() / "config.json"
-
-
-def accounts_file() -> Path:
-    return data_dir() / "accounts.json"
-
-
-def session_dir() -> Path:
-    return data_dir() / "sessions"
 
 
 def project_root() -> Path:

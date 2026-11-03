@@ -147,9 +147,6 @@ def test_display_value_redacts_auth_headers_in_run_command():
 def test_display_value_keeps_its_existing_special_cases():
     from megabasterd_cli.utils.redaction import REDACTED
 
-    assert cfg.display_value("connect_proxy_password", "swordfish") == REDACTED
-    assert cfg.display_value("elc_accounts", {"h": {"password": "swordfish"}}) == {
-        "h": {"password": REDACTED}
-    }
+    assert REDACTED in cfg.display_value("smart_proxy_url", "http://u:swordfish@h.invalid:1")
     assert cfg.display_value("smart_proxy_url", None) is None
     assert cfg.display_value("max_threads", 4) == 4

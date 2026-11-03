@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import pytest
 
-import megabasterd_cli.launcher_menu as lm
 from megabasterd_cli.core.api import MAX_RESPONSE_BYTES, _parse_body
 from megabasterd_cli.core.errors import MegaError
 
@@ -93,46 +92,6 @@ def test_a_normal_declared_length_still_parses():
 
 def test_a_missing_content_length_still_parses():
     assert _parse_body(_Resp({"Content-Type": "application/json"})) == [0]
-
-
-# ---------------------------------------------------------------------------
-# launcher_menu.py — the string comes from the operator
-# ---------------------------------------------------------------------------
-
-
-def _answers(monkeypatch, *lines):
-    queue = list(lines)
-
-    def fake_read(_prompt):
-        assert queue, "prompt asked for more input than the test supplied"
-        return queue.pop(0)
-
-    monkeypatch.setattr(lm, "_read_line", fake_read)
-
-
-def test_a_non_decimal_digit_at_the_menu_is_rejected_not_a_traceback(monkeypatch):
-    """`not trimmed.isdigit() or not 1 <= int(trimmed) <= count`: when
-    `isdigit()` was True the first operand was False, so Python went on to
-    evaluate `int()` and raised. The prompt already has a rejection path."""
-    _answers(monkeypatch, SUPERSCRIPT)
-    assert lm.ask_choice(8) == ""
-
-
-def test_a_decimal_digit_from_another_script_still_selects(monkeypatch):
-    """`isdecimal()` is True for these and `int()` accepts them, so narrowing
-    the guard must not start rejecting them. The caller re-parses with
-    `int(choice)`, so the raw string selecting entry 3 is correct."""
-    _answers(monkeypatch, ARABIC_THREE)
-    assert int(lm.ask_choice(8)) == 3
-
-
-def test_the_ordinary_menu_answers_are_unaffected(monkeypatch):
-    _answers(monkeypatch, "3")
-    assert lm.ask_choice(8) == "3"
-    _answers(monkeypatch, "99")
-    assert lm.ask_choice(8) == ""
-    _answers(monkeypatch, "abc")
-    assert lm.ask_choice(8) == ""
 
 
 # ---------------------------------------------------------------------------

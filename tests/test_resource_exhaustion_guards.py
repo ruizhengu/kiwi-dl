@@ -20,153 +20,24 @@ made the original reports interesting.
 
 from __future__ import annotations
 
-import gzip
-
 import pytest
 
-from megabasterd_cli.core import link_services as ls
 from megabasterd_cli.core.chunks import MAX_CHUNKS, MAX_FILE_SIZE, Chunk, chunk_count, iter_chunks
-from megabasterd_cli.core.crypto import b64_url_encode
 from megabasterd_cli.core.downloader import (
     DeclaredSizeError,
     InsufficientDiskSpaceError,
     MegaDownloader,
 )
 from megabasterd_cli.core.errors import NonRetryableTransferError
-from megabasterd_cli.core.links import parse_link
-from megabasterd_cli.proxy.selector import ProxySelector
 
 # ---------------------------------------------------------------------------
 # B7 - decompression bombs in the link payload
 # ---------------------------------------------------------------------------
 
 
-def _elc_link(payload: bytes):
-    return parse_link("mega://elc?" + b64_url_encode(payload))
-
-
-def test_gzipped_elc_link_cannot_inflate_without_bound():
-    """A tiny link must not be able to decide how many MiB we allocate."""
-    bomb = gzip.compress(b"\x00" * (ls.MAX_ELC_DECOMPRESSED_BYTES + 1))
-    assert len(bomb) < 100_000, "the point is that the compressed link stays small"
-    with pytest.raises(ls.PayloadTooLargeError, match="expands beyond"):
-        ls.decode_elc_payload(_elc_link(bytes([0x70]) + bomb))
-
-
-def test_oversized_compressed_elc_link_is_refused_up_front():
-    with pytest.raises(ls.PayloadTooLargeError, match="Compressed ELC payload"):
-        ls.decode_elc_payload(
-            _elc_link(bytes([0x70]) + b"\x00" * (ls.MAX_ELC_COMPRESSED_BYTES + 1))
-        )
-
-
-def test_a_normal_gzipped_elc_link_still_decodes():
-    service_url = "https://elc.example/api"
-    inner = (
-        (0).to_bytes(4, "little")
-        + len(service_url).to_bytes(2, "little")
-        + service_url.encode()
-        + (3).to_bytes(2, "little")
-        + b"tok"
-    )
-    payload = ls.decode_elc_payload(_elc_link(bytes([0x70]) + gzip.compress(inner)))
-    assert payload.service_url == service_url
-    assert payload.data_token == "tok"
-
-
-def test_corrupt_gzip_is_reported_as_a_bad_payload_not_a_size_problem():
-    with pytest.raises(ValueError, match="Corrupt ELC payload"):
-        ls.decode_elc_payload(_elc_link(bytes([0x70]) + b"not gzip at all"))
-
-
 # ---------------------------------------------------------------------------
 # B7 - unbounded response bodies
 # ---------------------------------------------------------------------------
-
-
-class _EndlessResponse:
-    """A response whose body never ends; records how much was actually pulled."""
-
-    status_code = 200
-    headers: dict = {}
-    encoding = "utf-8"
-
-    def __init__(self) -> None:
-        self.yielded = 0
-        self.closed = False
-
-    def iter_content(self, chunk_size=65536):
-        while True:
-            self.yielded += chunk_size
-            yield b"x" * chunk_size
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def close(self) -> None:
-        self.closed = True
-
-
-def _endless_post(monkeypatch):
-    response = _EndlessResponse()
-    monkeypatch.setattr("requests.post", lambda *a, **kw: response)
-    return response
-
-
-def test_elc_response_is_bounded_while_reading(monkeypatch):
-    response = _endless_post(monkeypatch)
-    service_url = "https://elc.example/api"
-    payload = (
-        bytes([0xB9])
-        + (0).to_bytes(4, "little")
-        + len(service_url).to_bytes(2, "little")
-        + service_url.encode()
-        + (3).to_bytes(2, "little")
-        + b"tok"
-    )
-    with pytest.raises(ls.PayloadTooLargeError):
-        ls.resolve_elc_links(
-            _elc_link(payload), user="u", api_key="k", selector=ProxySelector(force=False)
-        )
-    assert response.yielded <= ls.MAX_SERVICE_RESPONSE_BYTES + 65536
-    assert response.closed
-
-
-def test_megacrypter_response_is_bounded_while_reading(monkeypatch):
-    response = _endless_post(monkeypatch)
-    with pytest.raises(ls.PayloadTooLargeError):
-        ls.get_megacrypter_info(
-            parse_link("mc://mc.example/token"), selector=ProxySelector(force=False)
-        )
-    assert response.yielded <= ls.MAX_SERVICE_RESPONSE_BYTES + 65536
-
-
-def test_dlc_response_is_bounded_while_reading(monkeypatch):
-    """The old `len(response.text) > MAX` cap ran only after the full inflate."""
-    response = _endless_post(monkeypatch)
-    with pytest.raises(ls.PayloadTooLargeError, match="large"):
-        ls.decrypt_dlc_container("B" * 100, selector=ProxySelector(force=False))
-    assert response.yielded <= ls.MAX_DLC_RESPONSE_BYTES + 65536
-
-
-def test_service_responses_are_requested_as_streams():
-    """`stream=True` is what makes the cap possible; without it the body is
-    already buffered and inflated by the time any check could run.
-
-    The three services used to each carry their own `requests.post`, so this
-    grepped all three. They now share `_post_validated`, which is where the
-    flag actually lives - so assert it THERE, and separately assert the three
-    still route through it.
-
-    The docstring is stripped first because these functions describe their own
-    flags in prose: grepping raw source stayed green after the real keyword was
-    flipped, which I only found by mutating it.
-    """
-    from tests.test_dlc_hardening import code_without_docstring
-
-    assert "stream=True" in code_without_docstring(ls._post_validated)
-    for fn in (ls.resolve_elc_links, ls._post_megacrypter, ls._dlc_post):
-        assert "_post_validated" in code_without_docstring(fn), fn.__name__
 
 
 # ---------------------------------------------------------------------------

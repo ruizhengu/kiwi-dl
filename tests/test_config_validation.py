@@ -22,9 +22,9 @@ def _store(tmp_path) -> ConfigStore:
 def test_set_rejects_out_of_range_values(tmp_path):
     store = _store(tmp_path)
     for key, bad in [
-        ("streaming_port", "0"),
-        ("streaming_port", "70000"),
-        ("connect_proxy_port", "-1"),
+        ("max_parallel_downloads", "0"),
+        ("max_parallel_downloads", "70"),
+        ("smart_proxy_window_seconds", "-1"),
         ("timeout_seconds", "0"),
         ("max_workers", "0"),
         ("max_workers", "1000"),
@@ -39,11 +39,11 @@ def test_set_rejects_out_of_range_values(tmp_path):
 
 def test_set_accepts_valid_values(tmp_path):
     store = _store(tmp_path)
-    store.set("streaming_port", "9000")
+    store.set("max_parallel_downloads", "9")
     store.set("max_workers", "16")
     store.set("speed_limit_kbps", "512")
     store.set("log_level", "info")
-    assert store.config.streaming_port == 9000
+    assert store.config.max_parallel_downloads == 9
     assert store.config.max_workers == 16
     assert store.config.speed_limit_kbps == 512.0
 
@@ -53,7 +53,7 @@ def test_hand_edited_invalid_values_fall_back_with_warning(tmp_path):
     path.write_text(
         json.dumps(
             {
-                "streaming_port": 999999,
+                "max_parallel_downloads": 999,
                 "max_workers": -3,
                 "timeout_seconds": "sixty",
                 "verify_integrity": "yes-ish",
@@ -64,7 +64,7 @@ def test_hand_edited_invalid_values_fall_back_with_warning(tmp_path):
     )
     cfg = ConfigStore(path).load()
     defaults = Config()
-    assert cfg.streaming_port == defaults.streaming_port
+    assert cfg.max_parallel_downloads == defaults.max_parallel_downloads
     assert cfg.max_workers == defaults.max_workers
     assert cfg.timeout_seconds == defaults.timeout_seconds
     assert cfg.verify_integrity == defaults.verify_integrity
@@ -73,11 +73,11 @@ def test_hand_edited_invalid_values_fall_back_with_warning(tmp_path):
 
 def test_validate_config_reports_and_repairs():
     cfg = Config()
-    cfg.streaming_port = 0
+    cfg.max_parallel_downloads = 0
     cfg.log_level = "NOPE"
     warnings = validate_config(cfg)
     assert len(warnings) == 2
-    assert cfg.streaming_port == Config().streaming_port
+    assert cfg.max_parallel_downloads == Config().max_parallel_downloads
     assert cfg.log_level == Config().log_level
 
 
@@ -105,14 +105,7 @@ def test_optional_string_fields_reject_wrong_types_on_set(tmp_path):
     """MF8: None-default fields still have an expected type."""
     import megabasterd_cli.config as config_module
 
-    for key in (
-        "default_account",
-        "smart_proxy_url",
-        "run_command",
-        "upload_log_path",
-        "connect_proxy_password",
-        "megacrypter_server",
-    ):
+    for key in ("smart_proxy_url", "run_command", "all_finished_command"):
         config_module.validate_config_value(key, None)  # valid
         config_module.validate_config_value(key, "some-string")  # valid
         with pytest.raises(ValueError):
@@ -126,49 +119,20 @@ def test_optional_fields_fall_back_on_load_without_echoing_values(tmp_path, capl
     path.write_text(
         json.dumps(
             {
-                "default_account": ["not", "a", "string"],
+                "all_finished_command": ["not", "a", "string"],
                 "run_command": 42,
-                "connect_proxy_password": {"oops": "SECRET-VALUE"},
-                "upload_log_path": 3.14,
+                "smart_proxy_url": {"oops": "SECRET-VALUE"},
             }
         ),
         encoding="utf-8",
     )
     with caplog.at_level("WARNING"):
         cfg = ConfigStore(path).load()
-    assert cfg.default_account is None
+    assert cfg.all_finished_command is None
     assert cfg.run_command is None
-    assert cfg.connect_proxy_password is None
-    assert cfg.upload_log_path is None
+    assert cfg.smart_proxy_url is None
     joined = " ".join(r.getMessage() for r in caplog.records)
     assert "SECRET-VALUE" not in joined, "warnings must never echo secret values"
-
-
-def test_invalid_nested_elc_accounts_falls_back(tmp_path, caplog):
-    path = tmp_path / "config.json"
-    path.write_text(
-        json.dumps(
-            {
-                "elc_accounts": {
-                    "host.example": {"user": "u", "api_key": 123},  # non-string leaf
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    with caplog.at_level("WARNING"):
-        cfg = ConfigStore(path).load()
-    assert cfg.elc_accounts == {}
-    joined = " ".join(r.getMessage() for r in caplog.records)
-    assert "123" not in joined and "api_key" not in joined, "no nested content in warnings"
-
-
-def test_valid_elc_accounts_pass(tmp_path):
-    path = tmp_path / "config.json"
-    payload = {"elc_accounts": {"host.example": {"user": "u", "api_key": "k"}}}
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    cfg = ConfigStore(path).load()
-    assert cfg.elc_accounts == payload["elc_accounts"]
 
 
 def test_boolean_not_accepted_for_numeric_fields(tmp_path):
@@ -208,7 +172,7 @@ def test_migrate_removes_deprecated_keys_and_preserves_settings(tmp_path):
                 "smart_proxy_random": False,
                 "totally_unknown_key": 1,
                 "max_workers": 4,
-                "default_account": "a@example.com",
+                "run_command": "notify-send done",
             }
         ),
         encoding="utf-8",
@@ -221,7 +185,7 @@ def test_migrate_removes_deprecated_keys_and_preserves_settings(tmp_path):
     assert "smart_proxy_random" not in raw
     assert "totally_unknown_key" not in raw
     assert raw["max_workers"] == 4
-    assert raw["default_account"] == "a@example.com"
+    assert raw["run_command"] == "notify-send done"
     # Second migrate is a no-op.
     assert ConfigStore(path).migrate() == []
 

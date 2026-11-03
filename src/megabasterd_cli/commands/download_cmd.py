@@ -11,14 +11,7 @@ import click
 
 from ..core.api import MegaAPIClient
 from ..core.downloader import MegaDownloader
-from ..core.link_services import decrypt_dlc_container, resolve_elc_links, resolve_megacrypter_link
-from ..core.links import (
-    LinkType,
-    parse_link,
-    resolve_encrypted_container_link,
-    resolve_password_link,
-)
-from ..proxy.selector import ProxySelector
+from ..core.links import LinkType, parse_link, resolve_password_link
 from ..ui.machine_output import MachineOutput
 from ..ui.prompts import print_error
 from ..ui.transfer_progress import TransferProgress
@@ -109,10 +102,8 @@ def _read_links_file(path: Path) -> list[str]:
     "input_file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Read links from a text file, or decrypt a .dlc container.",
+    help="Read links from a text file, one per line (# starts a comment).",
 )
-@click.option("--elc-user", default=None, help="ELC account user for mega://elc links.")
-@click.option("--elc-api-key", default=None, help="ELC API key for mega://elc links.")
 @click.option(
     "-P",
     "--parallel",
@@ -163,8 +154,6 @@ def download(
     rename: str | None,
     proxy: str | None,
     input_file: Path | None,
-    elc_user: str | None,
-    elc_api_key: str | None,
     parallel_transfers: int | None,
     include_patterns: tuple[str, ...],
     exclude_patterns: tuple[str, ...],
@@ -188,28 +177,12 @@ def download(
         redirect.__enter__()
         ctx.call_on_close(lambda: redirect.__exit__(None, None, None))
     proxies = {"http": proxy, "https": proxy} if proxy else None
-    # One selector for every link-resolution request this command makes, so
-    # force_smart_proxy is enforced on DLC/ELC/MegaCrypter too.
-    selector = ProxySelector.from_config(cfg, proxy)
     failures = 0
 
     # Collect URLs from args and/or file
     url_list: list[str] = list(urls)
     if input_file:
-        if input_file.suffix.lower() == ".dlc":
-            try:
-                url_list.extend(
-                    decrypt_dlc_container(
-                        input_file.read_bytes(),
-                        timeout=cfg.timeout_seconds,
-                        selector=selector,
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001
-                print_error(f"DLC decrypt failed: {exc}")
-                ctx.exit(1)
-        else:
-            url_list.extend(_read_links_file(input_file))
+        url_list.extend(_read_links_file(input_file))
     if not url_list:
         print_error("No URLs given. Pass URLs as arguments or use -i <file>.")
         ctx.exit(2)
@@ -288,7 +261,6 @@ def download(
     file_jobs: list[tuple[str, str | None]] = []  # (url, rename_to)
     folder_file_jobs: list[str] = []
     folder_jobs: list[str] = []
-    expanded_urls: list[str] = []
     for url in url_list:
         try:
             parsed = parse_link(url)
@@ -296,33 +268,7 @@ def download(
             print_error(str(e))
             failures += 1
             continue
-        if parsed.type == LinkType.ELC_CONTAINER:
-            try:
-                expanded_urls.extend(
-                    resolve_elc_links(
-                        parsed,
-                        accounts=cfg.elc_accounts,
-                        user=elc_user,
-                        api_key=elc_api_key,
-                        timeout=cfg.timeout_seconds,
-                        selector=selector,
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001
-                print_error(f"ELC resolution failed: {exc}")
-                failures += 1
-            continue
-        expanded_urls.append(url)
 
-    for url in expanded_urls:
-        try:
-            parsed = parse_link(url)
-        except ValueError as e:
-            print_error(str(e))
-            failures += 1
-            continue
-
-        # Unwrap container formats before classifying as file vs folder.
         if parsed.type == LinkType.PASSWORD_PROTECTED:
             if not password:
                 print_error(f"Link is password-protected; supply -p PASSWORD: {url}")
@@ -334,30 +280,11 @@ def download(
                 print_error(f"Wrong password: {exc}")
                 failures += 1
                 continue
-        elif parsed.type == LinkType.ENCRYPTED_CONTAINER:
-            try:
-                parsed = resolve_encrypted_container_link(parsed)
-            except ValueError as exc:
-                print_error(f"Encrypted container decode failed: {exc}")
-                failures += 1
-                continue
-        elif parsed.type == LinkType.MEGACRYPTER:
-            try:
-                parsed = resolve_megacrypter_link(
-                    parsed,
-                    timeout=cfg.timeout_seconds,
-                    password=password,
-                    selector=selector,
-                )
-            except ValueError as exc:
-                log.info("MegaCrypter link will be downloaded via server API: %s", exc)
-                file_jobs.append((url, rename if len(expanded_urls) == 1 else None))
-                continue
 
-        # `url` here may still be the original container/password URL — after
-        # the resolve step above we MUST construct the downstream URL from
-        # the parsed (resolved) form, not from `url`, or the downloader will
-        # try to re-parse the wrapper and fail.
+        # `url` here may still be the original password or legacy URL - the
+        # downstream URL is built from the parsed (resolved) form, so the
+        # downloader never re-parses the wrapper, and a legacy and a modern
+        # link to the same file share one resume state.
         if parsed.type in (LinkType.FOLDER, LinkType.FOLDER_IN_FOLDER):
             resolved_url = (
                 f"https://mega.nz/folder/{parsed.public_id}#{parsed.key}"
@@ -381,7 +308,7 @@ def download(
             folder_file_jobs.append(resolved_url)
         elif parsed.type == LinkType.FILE:
             resolved_url = f"https://mega.nz/file/{parsed.public_id}#{parsed.key}"
-            file_jobs.append((resolved_url, rename if len(expanded_urls) == 1 else None))
+            file_jobs.append((resolved_url, rename if len(url_list) == 1 else None))
         else:
             print_error(f"Unsupported link type: {parsed.type}")
             failures += 1

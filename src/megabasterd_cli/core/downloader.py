@@ -724,8 +724,7 @@ class MegaDownloader:
                 raise IntegrityError(message=message)
 
         clear_state(destination)
-        # Elapsed covers the whole operation including integrity verification,
-        # matching the uploader's result semantics.
+        # Elapsed covers the whole operation including integrity verification.
         elapsed = time.monotonic() - self._start_time
         return DownloadResult(
             path=destination, size=file_size, elapsed_seconds=elapsed, integrity_ok=integrity_ok

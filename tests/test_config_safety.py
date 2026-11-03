@@ -27,41 +27,29 @@ def cli_env(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_display_value_redacts_proxy_password():
-    assert display_value("connect_proxy_password", "hunter2") == "<redacted>"
-    assert display_value("connect_proxy_password", None) is None
-
-
-def test_display_value_recursively_redacts_elc_accounts():
-    value = {"host.example": {"user": "u", "api_key": "SECRETKEY"}}
-    shown = display_value("elc_accounts", value)
-    assert shown["host.example"]["api_key"] == "<redacted>"
-    assert shown["host.example"]["user"] == "u"
+def test_display_value_redacts_proxy_credentials():
+    shown = display_value("smart_proxy_url", "http://alice:hunter2@proxy.invalid:8080")
+    assert "hunter2" not in shown and "<redacted>" in shown
+    assert display_value("smart_proxy_url", None) is None
 
 
 def test_config_show_never_prints_secrets(cli_env):
     runner = CliRunner()
-    runner.invoke(cli, ["config", "set", "connect_proxy_password", "hunter2"])
     runner.invoke(
-        cli,
-        [
-            "config",
-            "set",
-            "elc_accounts",
-            json.dumps({"h": {"user": "u", "api_key": "APIKEY123"}}),
-        ],
+        cli, ["config", "set", "smart_proxy_url", "http://alice:hunter2@proxy.invalid:8080"]
     )
     result = runner.invoke(cli, ["config", "show"])
     assert result.exit_code == 0
     assert "hunter2" not in result.output
-    assert "APIKEY123" not in result.output
     assert "<redacted>" in result.output
 
 
 def test_config_get_secret_is_redacted(cli_env):
     runner = CliRunner()
-    runner.invoke(cli, ["config", "set", "connect_proxy_password", "hunter2"])
-    result = runner.invoke(cli, ["config", "get", "connect_proxy_password"])
+    runner.invoke(
+        cli, ["config", "set", "smart_proxy_url", "http://alice:hunter2@proxy.invalid:8080"]
+    )
+    result = runner.invoke(cli, ["config", "get", "smart_proxy_url"])
     assert result.exit_code == 0
     assert "hunter2" not in result.output
     assert "<redacted>" in result.output
@@ -69,7 +57,9 @@ def test_config_get_secret_is_redacted(cli_env):
 
 def test_config_set_success_never_echoes_value(cli_env):
     runner = CliRunner()
-    result = runner.invoke(cli, ["config", "set", "connect_proxy_password", "hunter2"])
+    result = runner.invoke(
+        cli, ["config", "set", "smart_proxy_url", "http://alice:hunter2@proxy.invalid:8080"]
+    )
     assert result.exit_code == 0
     assert "hunter2" not in result.output
 
@@ -123,16 +113,16 @@ def test_set_null_stores_json_null(cli_env, tmp_path):
 
 def test_set_none_becomes_none(cli_env):
     runner = CliRunner()
-    runner.invoke(cli, ["config", "set", "default_account", "me@example.com"])
-    runner.invoke(cli, ["config", "set", "default_account", "NONE"])
-    result = runner.invoke(cli, ["config", "get", "default_account"])
+    runner.invoke(cli, ["config", "set", "run_command", "me@example.com"])
+    runner.invoke(cli, ["config", "set", "run_command", "NONE"])
+    result = runner.invoke(cli, ["config", "get", "run_command"])
     assert result.output.strip() in ("None", "")
 
 
 def test_literal_string_is_preserved(cli_env):
     runner = CliRunner()
-    runner.invoke(cli, ["config", "set", "default_account", "null-value"])
-    result = runner.invoke(cli, ["config", "get", "default_account"])
+    runner.invoke(cli, ["config", "set", "run_command", "null-value"])
+    result = runner.invoke(cli, ["config", "get", "run_command"])
     assert "null-value" in result.output
 
 
@@ -184,7 +174,7 @@ def test_two_threads_set_different_keys_both_survive(tmp_path):
             errors.append(exc)
 
     t1 = threading.Thread(target=setter, args=("max_workers", "12"))
-    t2 = threading.Thread(target=setter, args=("upload_workers", "7"))
+    t2 = threading.Thread(target=setter, args=("max_parallel_downloads", "7"))
     t1.start()
     t2.start()
     t1.join(timeout=30)
@@ -192,7 +182,7 @@ def test_two_threads_set_different_keys_both_survive(tmp_path):
     assert not errors
     final = ConfigStore(path).config
     assert final.max_workers == 12
-    assert final.upload_workers == 7
+    assert final.max_parallel_downloads == 7
 
 
 def test_two_store_instances_set_different_keys_both_survive(tmp_path):
@@ -262,7 +252,7 @@ def test_serialization_failure_preserves_original(tmp_path):
     store.set("max_workers", "8")
     original = path.read_bytes()
     # Inject an unserializable value and attempt a save.
-    store.config.elc_accounts = {"h": {"x": object()}}  # not JSON serializable
+    store.config.run_command = object()  # not JSON serializable
     with pytest.raises(TypeError):
         store.save()
     assert path.read_bytes() == original

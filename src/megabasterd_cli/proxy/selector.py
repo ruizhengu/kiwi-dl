@@ -1,11 +1,9 @@
-"""The single per-request proxy-selection authority.
+"""Per-request proxy selection for MEGA API calls.
 
-Every outbound HTTP request in this project — API calls, chunk transfers,
-streaming CDN reads, MegaCrypter/DLC/ELC resolution, proxy-list fetches —
-picks its proxies here. Selection lived in three near-identical private
-methods before (`MegaAPIClient`, `MegaDownloader`, `MegaUploader`) while
-streaming and link resolution had none at all, so `force_smart_proxy` was
-silently unenforced on those paths.
+Chunk transfers are routed by `quota_router.ChunkRouter`, which applies the
+SmartProxy rules (direct first, the pool after a 509). API requests go through
+this selector, which carries the pool only under `force_smart_proxy` (see
+`commands.api_support.api_for`).
 
 Enforced invariant:
 

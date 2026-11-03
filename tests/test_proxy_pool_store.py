@@ -202,26 +202,3 @@ class _FakeResponse:
 
     def __exit__(self, *exc) -> None:
         self.close()
-
-
-def test_fetch_caps_the_response_body(data_dir: Path, monkeypatch) -> None:
-    """A hostile proxy-list URL must not stream gigabytes into memory."""
-    import requests
-
-    body = b"1.2.3.4:8080\n" * 800_000  # ~10 MB
-    fake = _FakeResponse(body)
-    monkeypatch.setattr(requests, "get", lambda *a, **kw: fake)
-
-    result = CliRunner().invoke(
-        proxy_cmd.proxy_cmd,
-        ["fetch", "--source", "https://example.invalid/list.txt", "--limit", "5"],
-        obj={"config": Config()},
-        catch_exceptions=False,
-    )
-
-    assert result.exit_code == 0
-    assert fake.consumed <= proxy_cmd.MAX_FETCH_BYTES + 65536, (
-        f"read {fake.consumed} bytes from the proxy list; the cap is "
-        f"{proxy_cmd.MAX_FETCH_BYTES}"
-    )
-    assert os.path.exists(data_dir / "proxies.json")

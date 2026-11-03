@@ -19,10 +19,9 @@ import os
 import pytest
 
 from megabasterd_cli.core import download_source as ds
-from megabasterd_cli.core.crypto import b64_url_encode, make_ctr_cipher
+from megabasterd_cli.core.crypto import b64_url_encode
 from megabasterd_cli.core.errors import MegaError
 from megabasterd_cli.core.links import parse_link
-from megabasterd_cli.streaming import server as srv
 
 # Twelve call sites decode a link key and all of them pass through
 # `require_link_key` first, so that is where the length check lives - it raises
@@ -38,96 +37,6 @@ KEY_REFUSED = (ValueError, MegaError)
 
 KEY = bytes(range(16))
 NONCE = bytes(range(8))
-
-
-class _ChunkedResponse:
-    """Upstream that hands back a deliberately tiny first chunk."""
-
-    def __init__(self, body: bytes, first_chunk: int):
-        self._body = body
-        self._first = first_chunk
-
-    def iter_content(self, chunk_size=65536):
-        yield self._body[: self._first]
-        yield self._body[self._first :]
-
-    def close(self):
-        pass
-
-
-class _Sink:
-    def __init__(self):
-        self.data = b""
-
-    def write(self, chunk):
-        self.data += chunk
-
-
-def _pump(body: bytes, first_chunk: int, block_skip: int, length: int, start: int, end: int):
-    handler = object.__new__(srv._StreamingRequestHandler)
-    sink = _Sink()
-    handler.wfile = sink
-    cipher = make_ctr_cipher(KEY, NONCE, initial_value=0)
-    srv._StreamingRequestHandler._pump(
-        handler, _ChunkedResponse(body, first_chunk), cipher, block_skip, length, start, end
-    )
-    return sink.data
-
-
-def test_short_first_block_does_not_drop_the_ctr_skip():
-    """Range 5-63: the first 2-byte block must not consume the whole skip."""
-    plaintext = bytes(range(64))
-    ciphertext = make_ctr_cipher(KEY, NONCE, initial_value=0).encrypt(plaintext)
-
-    start, end = 5, 63
-    served = _pump(
-        ciphertext, first_chunk=2, block_skip=start, length=end - start + 1, start=start, end=end
-    )
-
-    assert served == plaintext[start : end + 1]
-
-
-def test_skip_still_works_when_the_first_block_is_long_enough():
-    """The ordinary path stays intact."""
-    plaintext = bytes(range(64))
-    ciphertext = make_ctr_cipher(KEY, NONCE, initial_value=0).encrypt(plaintext)
-
-    start, end = 5, 63
-    served = _pump(
-        ciphertext, first_chunk=64, block_skip=start, length=end - start + 1, start=start, end=end
-    )
-
-    assert served == plaintext[start : end + 1]
-
-
-def test_skip_spread_over_several_tiny_blocks():
-    """A skip of 15 consumed one byte at a time still lands on the right offset."""
-    plaintext = bytes(range(64))
-    ciphertext = make_ctr_cipher(KEY, NONCE, initial_value=0).encrypt(plaintext)
-
-    handler = object.__new__(srv._StreamingRequestHandler)
-    sink = _Sink()
-    handler.wfile = sink
-
-    class _OneByteAtATime:
-        def iter_content(self, chunk_size=65536):
-            for i in range(len(ciphertext)):
-                yield ciphertext[i : i + 1]
-
-        def close(self):
-            pass
-
-    start, end = 15, 63
-    srv._StreamingRequestHandler._pump(
-        handler,
-        _OneByteAtATime(),
-        make_ctr_cipher(KEY, NONCE, initial_value=0),
-        start,
-        end - start + 1,
-        start,
-        end,
-    )
-    assert sink.data == plaintext[start : end + 1]
 
 
 # ---------------------------------------------------------------------------
