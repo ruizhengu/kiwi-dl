@@ -130,15 +130,15 @@ def _emit(fields: _Fields, json_mode: bool) -> None:
     if json_mode:
         click.echo(json.dumps(fields.as_json(), ensure_ascii=False))
         return
-    table = SafeTable(show_header=False, title=fields.title, border_style="mb.table.border")
-    table.add_column("Field", style="mb.info")
-    table.add_column("Value", style="mb.value")
+    table = SafeTable(show_header=False, title=fields.title, border_style="kiwi.table.border")
+    table.add_column("Field", style="kiwi.info")
+    table.add_column("Value", style="kiwi.value")
     for key, display, _raw in fields.rows:
         table.add_row(key, display)
     _console.print(table)
     if fields.files:
-        listing = SafeTable(show_header=True, border_style="mb.table.border")
-        listing.add_column("Size", justify="right", style="mb.value")
+        listing = SafeTable(show_header=True, border_style="kiwi.table.border")
+        listing.add_column("Size", justify="right", style="kiwi.value")
         listing.add_column("Path")
         for item in fields.files:
             listing.add_row(format_bytes(int(item["size"])), item["path"])

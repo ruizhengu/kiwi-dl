@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -13,9 +14,12 @@ from ..config import default_download_dir
 from ..core.api import MegaAPIClient
 from ..core.downloader import MegaDownloader
 from ..core.links import LinkType, parse_link, resolve_password_link
+from ..ui import report
 from ..ui.machine_output import MachineOutput
 from ..ui.prompts import print_error
+from ..ui.theme import make_console
 from ..ui.transfer_progress import TransferProgress
+from ..utils.helpers import format_bytes, format_eta
 from ..utils.hooks import run_all_finished_command
 from ..utils.selection import (
     build_folder_file_filter,
@@ -25,6 +29,7 @@ from ..utils.speed import make_limiter
 from .api_support import api_for
 from .download_support import (
     EXIT_QUOTA_EXCEEDED,
+    RunTally,
     _download_file,
     _download_folder,
     _download_folder_file,
@@ -32,6 +37,25 @@ from .download_support import (
 )
 
 log = logging.getLogger(__name__)
+_console = make_console()
+
+
+def _print_summary(
+    tally: RunTally, failures: int, quota_stops: int, output_dir: Path, seconds: float
+) -> None:
+    """The closing block: what was saved, where, and what is left on the disk."""
+    rows = [("Downloaded", f"{format_bytes(tally.total_bytes)} · {tally.files} file(s)")]
+    if failures:
+        rows.append(("Failed", f"{failures} item(s), listed above"))
+    if quota_stops:
+        rows.append(("Quota", "MEGA's transfer quota stopped some items; retry once it resets"))
+    rows.append(("Saved to", report.short_path(output_dir)))
+    free = report.free_space(output_dir)
+    if free is not None:
+        rows.append(("Free space", format_bytes(free)))
+    rows.append(("Time", format_eta(seconds)))
+    title = "Download complete" if not failures else "Download finished with errors"
+    report.summary(_console, title, rows, ok=not failures)
 
 
 def _read_links_file(path: Path) -> list[str]:
@@ -192,6 +216,10 @@ def download(
         Path(cfg.download_path).expanduser() if cfg.download_path else default_download_dir()
     )
     output_dir.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    tally = RunTally()
+    if not quiet:
+        report.header(_console, "Download", output_dir)
     # Folder-link file selection (parity with MegaBasterd's FolderLinkDialog):
     # glob filters first, then the interactive picker on whatever remains.
     folder_file_filter = compose_file_filters(
@@ -324,17 +352,7 @@ def download(
     # parallel files, and file-in-folder links share this controller; each
     # full folder link gets its own controller (its manifest defines it).
     if file_jobs or folder_file_jobs:
-        progress = TransferProgress(
-            title="MEGA Download",
-            direction="download",
-            details=[
-                f"Source: {len(file_jobs) + len(folder_file_jobs)} link(s)",
-                f"Output: {output_dir}",
-                "",
-                "Backend: kiwi-dl",
-            ],
-            quiet=quiet,
-        )
+        progress = TransferProgress(title="", direction="download", quiet=quiet)
         with progress:
             # Process file jobs in parallel slots
             if file_jobs:
@@ -352,6 +370,7 @@ def download(
                                 machine=machine,
                                 run_command=cfg.run_command,
                                 quota_stops=quota_stops,
+                                tally=tally,
                             )
                             else 1
                         )
@@ -370,6 +389,7 @@ def download(
                             machine=machine,
                             run_command=cfg.run_command,
                             quota_stops=quota_stops,
+                            tally=tally,
                         )
 
                     with ThreadPoolExecutor(max_workers=parallel) as pool:
@@ -396,6 +416,7 @@ def download(
                             machine=machine,
                             run_command=cfg.run_command,
                             quota_stops=quota_stops,
+                            tally=tally,
                         )
                         failures += 0 if outcome else 1
                 else:
@@ -411,6 +432,7 @@ def download(
                             machine=machine,
                             run_command=cfg.run_command,
                             quota_stops=quota_stops,
+                            tally=tally,
                         )
 
                     with ThreadPoolExecutor(max_workers=parallel) as pool:
@@ -435,6 +457,7 @@ def download(
             machine=machine,
             run_command=cfg.run_command,
             quota_stops=quota_stops,
+            tally=tally,
         ):
             failures += 1
 
@@ -449,8 +472,12 @@ def download(
         failed=failures,
     )
 
-    if failures:
+    if not quiet:
+        _print_summary(tally, failures, len(quota_stops), output_dir, time.monotonic() - started)
+    elif failures:
+        # Quiet and --json runs print no summary, but a failed batch still says so.
         print_error(f"{failures} download item(s) failed.")
+    if failures:
         if len(quota_stops) == failures:
             ctx.exit(EXIT_QUOTA_EXCEEDED)
         ctx.exit(1)

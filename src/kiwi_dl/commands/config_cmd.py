@@ -42,11 +42,11 @@ def config_show(ctx: click.Context) -> None:
     table = SafeTable(
         title=f"Configuration ({config_file()})",
         show_header=True,
-        header_style="mb.table.header",
-        border_style="mb.table.border",
+        header_style="kiwi.table.header",
+        border_style="kiwi.table.border",
     )
-    table.add_column("Key", style="mb.info")
-    table.add_column("Value", style="mb.value")
+    table.add_column("Key", style="kiwi.info")
+    table.add_column("Value", style="kiwi.value")
     for key, value in asdict(cfg).items():
         # Secret values are redacted.
         table.add_row(key, str(display_value(key, value)))

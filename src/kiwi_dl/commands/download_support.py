@@ -9,19 +9,50 @@ options, and link expansion stay in `download_cmd.py`.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
+from rich.text import Text
 
 from ..core.errors import MegaError, TransferQuotaError
 from ..core.folder_downloader import MegaFolderDownloader
 from ..ui.machine_output import MachineOutput, error_code_for
-from ..ui.prompts import print_error, print_info, print_success
+from ..ui.prompts import print_error, print_skip, print_success
+from ..ui.theme import SYMBOL, make_console
 from ..ui.transfer_progress import TransferProgress, redact_link
 from ..utils.helpers import format_bytes
 from ..utils.hooks import run_post_transfer_command
 from ..utils.selection import SelectionCancelled, parse_selection_tokens
+
+_console = make_console()
+
+
+@dataclass
+class RunTally:
+    """What one `download` invocation saved, for its closing summary.
+
+    Shared by the parallel slots, so every update takes the lock.
+    """
+
+    files: int = 0
+    total_bytes: int = 0
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def add(self, size: int, files: int = 1) -> None:
+        with self._lock:
+            self.files += files
+            self.total_bytes += max(0, int(size or 0))
+
+
+def _done_line(name: str, size: int, seconds: float | None = None) -> str:
+    """`name · 1.20 GB · 12.3s`."""
+    parts = [name, format_bytes(size)]
+    if seconds is not None:
+        parts.append(f"{seconds:.1f}s")
+    return " · ".join(parts)
 
 
 def _folder_progress_callbacks(
@@ -88,17 +119,24 @@ def _interactive_file_picker(output_dir: Path):
     """Build a file_filter that lists the folder's files and asks what to keep."""
 
     def _pick(file_jobs):
-        click.echo(f"\nFolder contains {len(file_jobs)} file(s):")
-        total_size = 0
+        total_size = sum(int(node.size or 0) for node, _ in file_jobs)
+        _console.print()
+        _console.print(
+            Text(
+                f"{SYMBOL['group']} Folder contains {len(file_jobs)} file(s)"
+                f" · {format_bytes(total_size)}",
+                style="kiwi.title",
+            )
+        )
         for index, (node, destination) in enumerate(file_jobs, 1):
-            size = int(node.size or 0)
-            total_size += size
             try:
                 relative = destination.relative_to(output_dir).as_posix()
             except ValueError:
                 relative = destination.name
-            click.echo(f"  {index:3d}. {format_bytes(size):>12}  {relative}")
-        click.echo(f"Total: {format_bytes(total_size)}")
+            row = Text(f"  {index:3d}  ", style="kiwi.muted")
+            row.append(f"{format_bytes(int(node.size or 0)):>11}  ", style="kiwi.value")
+            row.append(relative)  # a MEGA filename: plain text, never markup
+            _console.print(row)
         while True:
             try:
                 answer = click.prompt(
@@ -152,6 +190,7 @@ def _download_file(
     machine: MachineOutput | None = None,
     run_command: str | None = None,
     quota_stops: list[str] | None = None,
+    tally: RunTally | None = None,
 ) -> bool:
     machine = machine or MachineOutput(False)
     item = progress.add_item(redact_link(url), status="active")
@@ -170,9 +209,9 @@ def _download_file(
         progress.set_item_name(item, result.path.name)
         progress.update_item(item, result.size, result.size)
         progress.finish_item(item, "complete")
-        print_success(
-            f"{result.path.name} ({format_bytes(result.size)}) " f"in {result.elapsed_seconds:.1f}s"
-        )
+        if tally is not None:
+            tally.add(result.size)
+        print_success(_done_line(result.path.name, result.size, result.elapsed_seconds))
         machine.emit(
             event="result",
             type="download",
@@ -227,19 +266,14 @@ def _download_folder(
     machine: MachineOutput | None = None,
     run_command: str | None = None,
     quota_stops: list[str] | None = None,
+    tally: RunTally | None = None,
 ) -> bool:
     machine = machine or MachineOutput(False)
     folder_dl = MegaFolderDownloader(downloader)
     items: dict[str, str] = {}  # destination str -> progress item key
     progress = TransferProgress(
-        title="MEGA Folder Download",
+        title=f"Folder {redact_link(url)}",
         direction="download",
-        details=[
-            f"Source: {redact_link(url)}",
-            f"Output: {output_dir}",
-            "",
-            "Backend: kiwi-dl",
-        ],
         quiet=quiet,
     )
 
@@ -272,7 +306,9 @@ def _download_folder(
                 on_file_failed=on_file_failed,
             )
         total_bytes = sum(r.size for r in results)
-        print_success(f"Folder complete: {len(results)} files, {format_bytes(total_bytes)} total")
+        if tally is not None:
+            tally.add(total_bytes, files=len(results))
+        print_success(f"Folder complete · {len(results)} files · {format_bytes(total_bytes)}")
         machine.emit(
             event="summary",
             type="download",
@@ -287,7 +323,7 @@ def _download_folder(
     except SelectionCancelled:
         # Documented behavior: answering "none" skips the folder and is NOT a
         # failure (exit stays zero if nothing else failed).
-        print_info(f"Selection cancelled; skipped folder: {redact_link(url)}")
+        print_skip(f"Selection cancelled; skipped folder: {redact_link(url)}")
         machine.emit(event="result", type="download", status="skipped", source=redact_link(url))
         return True
     except MegaError as e:
@@ -329,6 +365,7 @@ def _download_folder_file(
     machine: MachineOutput | None = None,
     run_command: str | None = None,
     quota_stops: list[str] | None = None,
+    tally: RunTally | None = None,
 ) -> bool:
     machine = machine or MachineOutput(False)
     folder_dl = MegaFolderDownloader(downloader)
@@ -349,22 +386,20 @@ def _download_folder_file(
         )
         result = results[0] if results else None
         if result is None:
-            print_success("Folder complete: 0 files, 0 B total")
+            print_success("Folder complete · 0 files")
             return True
+        total_bytes = sum(item.size for item in results)
+        if tally is not None:
+            tally.add(total_bytes, files=len(results))
         if len(results) == 1:
-            print_success(
-                f"{result.path} ({format_bytes(result.size)}) " f"in {result.elapsed_seconds:.1f}s"
-            )
+            print_success(_done_line(result.path.name, result.size, result.elapsed_seconds))
         else:
-            total_bytes = sum(item.size for item in results)
-            print_success(
-                f"Folder complete: {len(results)} files, {format_bytes(total_bytes)} total"
-            )
+            print_success(f"Folder complete · {len(results)} files · {format_bytes(total_bytes)}")
         for item in results:
             _run_hook_for(item.path, run_command)
         return True
     except SelectionCancelled:
-        print_info(f"Selection cancelled; skipped folder node: {redact_link(url)}")
+        print_skip(f"Selection cancelled; skipped folder node: {redact_link(url)}")
         machine.emit(event="result", type="download", status="skipped", source=redact_link(url))
         return True
     except MegaError as e:
