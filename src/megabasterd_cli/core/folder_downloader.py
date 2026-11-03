@@ -15,18 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..utils.helpers import ensure_within_directory, sanitize_filename
-from .crypto import (
-    a32_to_bytes,
-    aes_key_wrap_decrypt,
-    b64_url_decode,
-    bytes_to_a32,
-    decrypt_attributes,
-    str_to_a32,
-    unpack_file_key,
-)
+from .crypto import a32_to_bytes, bytes_to_a32, str_to_a32
 from .downloader import DownloadProgress, DownloadResult, MegaDownloader
 from .errors import NonRetryableTransferError, TransferError
 from .links import LinkType, parse_link, require_link_key
+from .share_keys import share_root_handles, unwrap_share_node_key
 
 log = logging.getLogger(__name__)
 
@@ -316,37 +309,24 @@ class MegaFolderDownloader:
         are unaffected.
         """
         decrypted: list[FolderNode] = []
+        # A node's `k` can carry several `handle:key` items; the share key
+        # unwraps the one named after the shared folder (see `share_keys`).
+        roots = share_root_handles(raw_nodes)
         for raw in raw_nodes:
-            raw_key = raw.get("k", "")
             node_type = raw.get("t", 0)
-
-            if ":" in raw_key:
-                _owner, wrapped = raw_key.split(":", 1)
-            else:
-                wrapped = raw_key
-            if not wrapped:
+            if not raw.get("k"):
                 continue
 
-            try:
-                key_bytes = aes_key_wrap_decrypt(b64_url_decode(wrapped), folder_key)
-            except Exception as e:
-                log.warning("Skipping node %s (key decrypt failed: %s)", raw.get("h"), e)
+            unwrapped = unwrap_share_node_key(raw, folder_key, roots)
+            if unwrapped is None:
+                log.warning(
+                    "Skipping node %s (no key in it unwraps with the link key)", raw.get("h")
+                )
                 continue
+            key_bytes, attrs = unwrapped
 
-            raw_key_a32 = None
-            if node_type == 0:
-                # File: 32-byte key, unpack for AES-CTR
-                key_a32 = bytes_to_a32(key_bytes[:32])
-                aes_key, _, _ = unpack_file_key(key_a32)
-                attr_key = aes_key
-                raw_key_a32 = key_a32
-            else:
-                attr_key = key_bytes[:16]
-
-            attrs = decrypt_attributes(
-                b64_url_decode(raw.get("a", "") or "") if raw.get("a") else b"",
-                attr_key,
-            )
+            # File: 32-byte key, unpacked for AES-CTR by the download itself.
+            raw_key_a32 = bytes_to_a32(key_bytes[:32]) if node_type == 0 else None
             name = (attrs or {}).get("n") or raw.get("h", "unnamed")
 
             decrypted.append(
