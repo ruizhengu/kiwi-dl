@@ -19,7 +19,7 @@ from kiwi_dl.core import hashcash as hashcash_module
 from kiwi_dl.core.api import MegaAPIClient
 
 TOKEN_B64 = base64.urlsafe_b64encode(b"t" * 48).decode().rstrip("=")
-CHALLENGE = f"1:200:{TOKEN_B64}"
+CHALLENGE = f"1:200:1731410499:{TOKEN_B64}"
 
 BUDGET = 0.4
 
@@ -108,4 +108,4 @@ def test_direct_callers_keep_the_per_solve_timeout(monkeypatch):
     monkeypatch.setattr(hashcash_module, "solve", _solve)
     header = hashcash_module.build_solution_header(CHALLENGE, timeout=2.5)
     assert seen == [2.5]
-    assert header.startswith("1:200:")
+    assert header.startswith(f"1:{TOKEN_B64}:")

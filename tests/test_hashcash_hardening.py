@@ -37,7 +37,7 @@ TOKEN_B64 = _b64url(b"A" * TOKEN_BYTES)
 def test_out_of_range_easiness_rejected(easiness: int) -> None:
     """Huge / negative easiness must raise a typed error, not allocate or crash."""
     with pytest.raises(HashcashError, match="easiness"):
-        parse_challenge(f"1:{easiness}:{TOKEN_B64}")
+        parse_challenge(f"1:{easiness}:1731410499:{TOKEN_B64}")
 
 
 @pytest.mark.parametrize("easiness", [10**10, -1])
@@ -50,7 +50,7 @@ def test_out_of_range_easiness_rejected_on_direct_construction(easiness: int) ->
 @pytest.mark.parametrize("version", [0, 2, 999, -1])
 def test_unsupported_version_rejected(version: int) -> None:
     with pytest.raises(HashcashError, match="version"):
-        parse_challenge(f"{version}:192:{TOKEN_B64}")
+        parse_challenge(f"{version}:192:1731410499:{TOKEN_B64}")
 
 
 def test_oversized_token_rejected_before_decode(monkeypatch) -> None:
@@ -65,7 +65,7 @@ def test_oversized_token_rejected_before_decode(monkeypatch) -> None:
     monkeypatch.setattr(hashcash.base64, "b64decode", spy)
 
     with pytest.raises(HashcashError, match="token"):
-        parse_challenge("1:192:" + "A" * 10_000_000)
+        parse_challenge("1:192:1731410499:" + "A" * 10_000_000)
 
     assert not decoded["called"], "b64decode ran on an unbounded attacker blob"
 
@@ -77,7 +77,7 @@ def test_default_timeout_is_bounded() -> None:
 
 
 def test_valid_challenge_still_parses() -> None:
-    ch = parse_challenge(f"1:255:{TOKEN_B64}")
+    ch = parse_challenge(f"1:255:1731410499:{TOKEN_B64}")
     assert ch.version == 1
     assert ch.easiness == 255
     assert ch.threshold > 0
