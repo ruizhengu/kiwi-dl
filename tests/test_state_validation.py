@@ -174,14 +174,13 @@ def test_round_trip_survives_save_and_load(tmp_path):
 
 
 def test_clear_state_removes_the_state_and_keeps_only_the_lock_sidecar(tmp_path):
-    """The `.lock` sidecar is deliberately kept; nothing else may remain.
+    """A plain `clear_state` keeps the `.lock` sidecar; nothing else may remain.
 
-    This test previously demanded the sidecar be unlinked too. That is the
-    unsound tidier option: between `release()` and `unlink()` another process
-    can lock the still-open inode while the unlink frees the NAME, so a third
-    process locks a FRESH inode and two owners each believe they are exclusive
-    - the identical race `utils/helpers.release_destination` documents at
-    length for `.mbclaim`. An empty sidecar is inert and is reused.
+    Unlinking it AFTER `release()` is unsound: another process can lock the
+    still-open inode while the unlink frees the NAME, so a third process locks
+    a FRESH inode and two owners each believe they are exclusive. A finished
+    download passes `remove_lock=True`, which unlinks it while still locked
+    (see `utils/filelock`); every other caller keeps it for reuse.
     """
     destination = tmp_path / "out.bin"
     state = TransferState(

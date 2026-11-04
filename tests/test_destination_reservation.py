@@ -227,7 +227,9 @@ def test_repeated_transfers_do_not_accumulate_locks(tmp_path):
 # `release_destination` used to unlink the sidecar. Between release() and
 # unlink() a second process could lock the still-open inode; the unlink then
 # freed the NAME, so a third process created a FRESH inode and locked that -
-# two live owners of one destination. The sidecar is now persistent.
+# two live owners of one destination. A plain release keeps the sidecar; a
+# finished transfer removes it while still holding it, which
+# tests/test_finished_download_sidecars.py proves safe.
 # ---------------------------------------------------------------------------
 
 

@@ -217,9 +217,8 @@ def test_clear_state_does_not_unlink_while_a_writer_holds_the_lock(tmp_path, mon
 
 
 def test_clear_state_keeps_the_inert_lock_sidecar(tmp_path):
-    """Unlinking a live lock name re-creates the inode race documented in
-    `utils/helpers.release_destination`: two processes end up locking two
-    different inodes under one name."""
+    """Without `remove_lock` the sidecar stays: the transfer may go on, and
+    the next save reuses it. Only a finished download removes it."""
     destination = tmp_path / "out.bin"
     save_state(_download_state(destination))
     sp = state_path_for(destination)

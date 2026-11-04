@@ -113,7 +113,8 @@ def _numbered_candidates(path: Path) -> Iterator[Path]:
 #
 # The file lock is deliberately chosen over a marker file: the OS drops it when
 # the owning process exits for any reason, so a crash can never leave a stale
-# reservation that permanently blocks a valid future transfer.
+# reservation that permanently blocks a valid future transfer. The sidecar
+# stays while a transfer is unfinished and is removed once it has finished.
 CLAIM_SUFFIX = ".mbclaim"
 
 _claimed_destinations: set[str] = set()
@@ -168,27 +169,28 @@ def claim_destination(
     raise AssertionError("unreachable")  # pragma: no cover - generator is infinite
 
 
-def release_destination(path: Path) -> None:
+def release_destination(path: Path, *, remove_claim: bool = False) -> None:
     """Release a reservation made by `claim_destination`.
 
-    The `.mbclaim` sidecar is deliberately NOT unlinked. Removing it looks
-    tidier but is unsound: between `release()` and `unlink()` another process
-    can acquire the lock on the still-open inode, and the unlink then frees the
-    NAME, so a third process creates a fresh inode and locks that instead -
-    leaving two live owners of one destination.
+    By default the `.mbclaim` sidecar stays: the transfer is unfinished or
+    stopped, and a resume will claim the same name again. A leftover sidecar
+    is inert - empty, unlocked once its owner releases or exits (the OS drops
+    advisory locks on close) - and the next claim reuses it.
 
-    Keeping a stable pathname means every process contends on the same inode
-    forever. A leftover sidecar is inert: it is empty, holds no lock once its
-    owner releases or exits (the OS drops advisory locks on close), and the
-    next claim REUSES it instead of creating a new one. It is therefore safe to
-    leave behind, and safe for a user to delete when no transfer is running.
+    `remove_claim=True` is for a transfer that finished: nothing will resume
+    it, so the sidecar is deleted. It is unlinked while still locked, never
+    after `release()`: unlinking after would let a process that had the old
+    file open lock that orphan while a third created and locked a fresh file
+    under the same name - two owners of one destination. Unlinked while held,
+    a process that locks the orphan finds the name moved and retries on the
+    current file (see `utils/filelock`).
     """
     with _claim_lock:
         key = os.path.normcase(str(path))
         _claimed_destinations.discard(key)
         lock = _claim_locks.pop(key, None)
     if lock is not None:
-        lock.release()  # type: ignore[attr-defined]
+        lock.release(remove=remove_claim)  # type: ignore[attr-defined]
 
 
 def is_within_directory(base: Path, target: Path) -> bool:
