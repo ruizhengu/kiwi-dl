@@ -212,7 +212,14 @@ class FakeCdn:
     def get(self, url, headers=None, timeout=None, stream=False, proxies=None):
         start, end = (int(x) for x in headers["Range"].split("=", 1)[1].split("-"))
         route = (proxies or {}).get("http") or "direct"
-        record = {"url": url, "start": start, "end": end, "proxies": proxies, "route": route}
+        record = {
+            "url": url,
+            "start": start,
+            "end": end,
+            "proxies": proxies,
+            "route": route,
+            "timeout": timeout,
+        }
         with self._lock:
             self.requests.append(record)
         if self.fail_with is not None:

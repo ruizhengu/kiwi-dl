@@ -567,3 +567,39 @@ def test_a_folder_with_another_failure_is_a_plain_transfer_error(tmp_path, monke
     with pytest.raises(TransferError) as caught:
         MegaFolderDownloader(MegaDownloader(api=None))._download_file_jobs("FOLDER", jobs)
     assert not isinstance(caught.value, TransferQuotaError)
+
+
+# ---------------------------------------------------------------------------
+# Proxy timeout
+# ---------------------------------------------------------------------------
+
+
+def test_proxied_chunks_give_up_on_a_dead_proxy_quickly(cdn, tmp_path):
+    """Public proxy lists are mostly dead entries; 60 s per dead one stalled a worker."""
+    cdn.quota["direct"] = 128 * KiB
+    policy = SmartProxyPolicy(SmartProxyPool([A]), proxy_timeout_seconds=5)
+    _download(cdn, tmp_path, policy)
+
+    direct = {r["timeout"] for r in cdn.requests if r["route"] == "direct"}
+    proxied = {r["timeout"] for r in cdn.requests if r["route"] == A}
+    assert direct == {60}
+    assert proxied == {(5.0, 15.0)}
+
+
+@pytest.mark.parametrize(
+    ("seconds", "direct", "expected"),
+    [(5, 60, (5.0, 15.0)), (5, 10, (5.0, 10.0)), (30, 60, (30.0, 60.0)), (3, 60, (3.0, 9.0))],
+)
+def test_the_read_timeout_is_three_connects_but_never_above_the_direct_one(
+    seconds, direct, expected
+):
+    assert SmartProxyPolicy(proxy_timeout_seconds=seconds).proxy_timeout(direct) == expected
+
+
+@pytest.mark.parametrize(("value", "ok"), [(2, False), (3, True), (120, True), (121, False)])
+def test_the_proxy_timeout_is_clamped_like_megabasterd(value, ok):
+    if ok:
+        validate_config_value("smart_proxy_timeout_seconds", value)
+    else:
+        with pytest.raises(ValueError):
+            validate_config_value("smart_proxy_timeout_seconds", value)

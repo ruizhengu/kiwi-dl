@@ -98,6 +98,7 @@ class SmartProxyPolicy:
         mode: str = "on-509",
         window_seconds: int = 3600,
         ban_seconds: int = 300,
+        proxy_timeout_seconds: int = 5,
         strict: bool = False,
         budget_seconds: int | None = 0,
         clock: Callable[[], float] = time.monotonic,
@@ -109,6 +110,7 @@ class SmartProxyPolicy:
         self.mode = mode
         self.window_seconds = max(MIN_WINDOW_SECONDS, min(MAX_WINDOW_SECONDS, window_seconds))
         self.ban_seconds = max(0, ban_seconds)
+        self.proxy_timeout_seconds = max(1, proxy_timeout_seconds)
         self.strict = strict
         self.budget_seconds = None if budget_seconds is None else max(0, budget_seconds)
         self._clock = clock
@@ -129,9 +131,22 @@ class SmartProxyPolicy:
             mode=cfg.smart_proxy_mode,
             window_seconds=cfg.smart_proxy_window_seconds,
             ban_seconds=cfg.smart_proxy_ban_seconds,
+            proxy_timeout_seconds=cfg.smart_proxy_timeout_seconds,
             strict=cfg.force_smart_proxy,
             budget_seconds=cfg.quota_budget_seconds,
         )
+
+    def proxy_timeout(self, direct_timeout: float) -> tuple[float, float]:
+        """`(connect, read)` timeouts for a chunk request through a pool proxy.
+
+        A dead proxy is the normal case with a public list, and the general
+        timeout (60 s) let one hold a worker for a minute. The connect timeout
+        is `proxy_timeout_seconds`; the read timeout - the longest silence
+        between bytes, not the whole chunk - is three times that, never more
+        than the direct one, so a slow but working proxy is not cut off.
+        """
+        connect = float(self.proxy_timeout_seconds)
+        return connect, min(float(direct_timeout), max(connect, 3 * connect))
 
     # -- the proxy window ---------------------------------------------------
 

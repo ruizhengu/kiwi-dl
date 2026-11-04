@@ -82,7 +82,7 @@ def fetch_chunk(
         with requests.get(
             cdn_url,
             headers=headers,
-            timeout=dl.timeout,
+            timeout=dl.smart_proxy.proxy_timeout(dl.timeout) if proxied else dl.timeout,
             stream=True,
             proxies=route.proxies,
         ) as resp:

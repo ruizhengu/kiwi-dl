@@ -44,7 +44,6 @@ DEPRECATED_CONFIG_KEYS = {
     "and was removed.",
     "smart_proxy_autorefresh_minutes": "not implemented; the proxy pool is reloaded on every "
     "command run.",
-    "smart_proxy_timeout_seconds": "not implemented.",
     "smart_proxy_random": "not implemented; the pool always picks randomly, weighted by health.",
     "smart_proxy_enabled": "removed; proxies you add are used, and "
     "`kiwi-dl config set smart_proxy_mode off` switches them off.",
@@ -98,6 +97,10 @@ class Config:
     smart_proxy_mode: str = "on-509"
     smart_proxy_window_seconds: int = 3600
     smart_proxy_ban_seconds: int = 300  # a failing proxy's ban; 0 = for the rest of the run
+    # How long to wait for a proxy to connect (and, three times that, between
+    # bytes of a chunk) before trying another. Free proxies are mostly dead at
+    # any moment; MegaBasterd allows 5 s (its setting is clamped to 3-120).
+    smart_proxy_timeout_seconds: int = 5
     timeout_seconds: int = 60
     auto_resume: bool = True
     keep_state_files_on_error: bool = True
@@ -147,6 +150,7 @@ _VALIDATORS: dict[str, tuple] = {
         "an integer between 60 and 86400",
     ),
     "smart_proxy_ban_seconds": (lambda v: v >= 0, "a non-negative integer (0 = rest of the run)"),
+    "smart_proxy_timeout_seconds": (lambda v: 3 <= v <= 120, "an integer between 3 and 120"),
     "log_max_bytes": (lambda v: v >= 0, "a non-negative integer"),
     "log_backups": (lambda v: v >= 0, "a non-negative integer"),
     "log_level": (
