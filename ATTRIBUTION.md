@@ -15,4 +15,8 @@ kiwi-dl's proxy behaviour follows that of
 reimplemented from a description of that behaviour; no MegaBasterd code was
 copied for it.
 
+kiwi-dl's hashcash solver (`src/kiwi_dl/core/hashcash.py`) was written for
+kiwi-dl from a description of MEGA's hashcash protocol. It replaces an earlier
+port of MegaBasterd's `HashcashSolver.java` and contains no MegaBasterd code.
+
 kiwi-dl is not affiliated with Mega Limited.
