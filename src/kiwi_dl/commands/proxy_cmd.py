@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import random
 import re
-import socket
 import threading
 import time
 from contextlib import contextmanager
@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 import click
+import requests
 
 from ..proxy.lists import PROXY_SCHEMES, ProxyList, validate_list
 from ..proxy.runtime import _load_persisted_pool, _pool_path, pool_payload
@@ -270,83 +271,136 @@ def _safe_exc(exc: BaseException, secrets: list[str]) -> str:
     return f"{type(exc).__name__}: {_scrub(str(exc), secrets)}"
 
 
-MAX_PROBE_THREADS = 64
+MAX_PROBE_THREADS = 256
+
+# What a probe asks for through each proxy: plain HTTP, like a chunk download,
+# to a MEGA host that answers without a link or any quota - with a 301 that
+# carries MEGA's own CORS header. A dead proxy fails, and a captive portal or a
+# proxy that answers by itself does not produce that header.
+MEGA_PROBE_URL = "http://g.api.mega.co.nz/"
+MEGA_SIGNATURE = "mega-chrome-antileak"
+
+# More rows than this and the table is noise: the working ones are listed
+# (fastest first) and the failures are counted by reason.
+TABLE_ROWS = 50
 
 
 def _probe(url: str, timeout: float) -> tuple[bool, str]:
-    """Open and immediately close a bounded TCP connection to one proxy.
+    """Ask MEGA for one tiny answer through this proxy.
 
-    Returns `(reachable, latency-or-reason)`. The reason is scrubbed HERE, not
-    at print time, so a future consumer of the result cannot reintroduce the
-    leak.
-
-    TCP reachability only. It proves the port answers, not that the peer
-    speaks HTTP CONNECT or SOCKS5 - but a dead host is the commonest failure
-    of a proxy list, and a real handshake
-    needs a third-party host to tunnel to, i.e. this command would have to send
-    someone else's server traffic to find out. Add the handshake if "answers
-    but does not proxy" shows up in practice.
+    Returns `(works, latency-or-reason)`. The reason is scrubbed HERE, not at
+    print time, so a future consumer of the result cannot reintroduce the leak.
+    An open port proves nothing about a free proxy: plenty answer and then
+    refuse, or relay to their own login page, so the verdict is whether MEGA
+    itself answered.
     """
     start = time.monotonic()
+    # Schemeless is normal here: `proxy add`/`proxy import` store the line
+    # exactly as typed, and `requests` would read `user:pass@host` as a scheme.
+    proxy = url if "://" in url else f"http://{url}"
     try:
-        # Schemeless is normal here: `proxy add`/`proxy import` store the line
-        # exactly as typed, and `urlsplit` reads a bare `host:8080` as a scheme.
-        parsed = urlsplit(url if "://" in url else f"//{url}")
-        host, port = parsed.hostname, parsed.port
-        if not host or not port:
-            return False, "no host:port in the stored entry"
-        socket.create_connection((host, port), timeout).close()
+        with requests.get(
+            MEGA_PROBE_URL,
+            proxies={"http": proxy, "https": proxy},
+            timeout=(timeout, timeout),
+            allow_redirects=False,
+            stream=True,
+        ) as resp:
+            signature = resp.headers.get("Access-Control-Allow-Headers", "").lower()
+            status = resp.status_code
     except Exception as exc:  # noqa: BLE001
         return False, _safe_exc(exc, _url_secrets(url))
+    if MEGA_SIGNATURE not in signature:
+        return False, f"answered HTTP {status}, but not as MEGA"
     return True, f"{(time.monotonic() - start) * 1000:.0f} ms"
 
 
-_NOT_STARTED = object()  # still waiting for a thread when the run ended
+_NOT_STARTED = object()  # still waiting for a worker when the run ended
 _NO_ANSWER = object()  # probing, but no answer before the run ended
 
 
 def _run_probes(urls: list[str], timeout: float, workers: int) -> list:
-    """Probe `urls` concurrently, at most `workers` at a time, within one deadline.
+    """Probe `urls` with at most `workers` threads, within one deadline.
 
-    Daemon threads rather than a ThreadPoolExecutor: `concurrent.futures`
-    joins its workers at interpreter exit, so one probe stuck in a connect or a
-    DNS lookup held the process open for its whole timeout after the report was
-    printed - and Ctrl-C printed "Aborted!" and then hung for the same minute.
+    A fixed set of worker threads takes the next URL from a shared queue: a
+    proxy list is thousands of entries, and one thread per entry was thousands
+    of threads at once. Daemon threads rather than a ThreadPoolExecutor:
+    `concurrent.futures` joins its workers at interpreter exit, so one probe
+    stuck in a connect or a DNS lookup held the process open for its whole
+    timeout after the report was printed - and Ctrl-C printed "Aborted!" and
+    then hung for the same minute.
 
-    The run gets one connect timeout per WAVE of probes: a pool bigger than the
-    thread cap queues the rest, and a single-timeout budget would end with
-    queued entries never given a socket. The deadline still matters on its own,
-    because `create_connection` times the connect but not the `getaddrinfo` in
-    front of it.
+    The run gets two probe timeouts (connect, then read) per WAVE of probes: a
+    pool bigger than the thread cap queues the rest, and a single-timeout
+    budget would end with queued entries never given a socket. The deadline
+    still matters on its own, because neither timeout covers the
+    `getaddrinfo` in front of the connect.
     """
     results: list = [_NOT_STARTED] * len(urls)
-    slots = threading.BoundedSemaphore(workers)
+    queue = iter(range(len(urls)))
+    take = threading.Lock()
 
-    def probe(index: int, url: str) -> None:
-        with slots:
+    def worker() -> None:
+        while True:
+            with take:
+                index = next(queue, None)
+            if index is None:
+                return
             results[index] = _NO_ANSWER
-            results[index] = _probe(url, timeout)
+            results[index] = _probe(urls[index], timeout)
 
-    threads = [
-        threading.Thread(target=probe, args=(i, url), daemon=True) for i, url in enumerate(urls)
-    ]
+    count = max(1, min(workers, len(urls)))
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(count)]
     for thread in threads:
         thread.start()
-    deadline = time.monotonic() + timeout * -(-len(urls) // max(1, workers))
+    deadline = time.monotonic() + 2 * timeout * -(-len(urls) // count)
     for thread in threads:
         thread.join(max(0.0, deadline - time.monotonic()))
     return list(results)
 
 
-@proxy_cmd.command("test", short_help="Probe every proxy in the pool for reachability.")
-@click.pass_context
-def proxy_test(ctx: click.Context) -> None:
-    """Probe every pooled proxy concurrently and report which ones answer.
+def _verdict(result, timeout: float) -> tuple[bool, str]:
+    # An entry that never got a socket must not be called dead: "no" next to a
+    # working proxy is how someone deletes a good one.
+    if result is _NOT_STARTED:
+        return False, "not probed within the run budget"
+    if result is _NO_ANSWER:
+        return False, f"no answer within {timeout}s"
+    ok, detail = result
+    return bool(ok), str(detail)
 
-    Exits non-zero when nothing is reachable, so `kiwi-dl proxy test && kiwi-dl download
-    ...` runs the transfer only when the pool can actually carry it.
+
+def _reason_kind(detail: str) -> str:
+    """A failure reason without the address in it, for counting."""
+    return detail.split(":", 1)[0] if ":" in detail else detail
+
+
+@proxy_cmd.command("test", short_help="Check which proxies can reach MEGA.")
+@click.option(
+    "--lists/--no-lists",
+    default=True,
+    help="Also fetch and test the proxy lists' entries (default on).",
+)
+@click.option(
+    "--limit",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Test only this many entries, picked at random (for long lists).",
+)
+@click.option(
+    "--keep-working",
+    is_flag=True,
+    help="Afterwards, keep exactly the proxies that worked as your own proxies.",
+)
+@click.pass_context
+def proxy_test(ctx: click.Context, lists: bool, limit: int | None, keep_working: bool) -> None:
+    """Ask MEGA for a tiny answer through every proxy and report which ones work.
+
+    The same plain-HTTP path a chunk download takes, with no link and no quota
+    used. Exits non-zero when none works, so `kiwi-dl proxy test && kdl ...`
+    only downloads when the pool can carry it.
     """
-    from ..proxy.runtime import _urls_from_config
+    from ..proxy.runtime import _urls_from_config, attach_list_refresher
 
     cfg = ctx.obj["config"]
     # Same pool `proxy list` shows: persisted entries plus `smart_proxy_url`.
@@ -355,51 +409,71 @@ def proxy_test(ctx: click.Context) -> None:
     pool = _load_persisted_pool()
     for url in _urls_from_config(cfg):
         pool.add(url)
+    if lists and pool.list_sources:
+        for source, outcome in attach_list_refresher(
+            pool, strict=cfg.force_smart_proxy
+        ).refresh_now():
+            got = f"{outcome} proxies" if isinstance(outcome, int) else f"not fetched ({outcome})"
+            print_info(f"Proxy list {_safe_source(source.url)}: {got}")
     entries = pool.list()
+    if limit is not None and limit < len(entries):
+        entries = random.sample(entries, limit)
     if not entries:
         print_error("No proxies stored; nothing to test.")
         ctx.exit(1)
 
-    # The project's existing per-request timeout is each probe's connect
-    # deadline, and the whole run gets one deadline per WAVE of probes. A pool
-    # bigger than the thread cap queues the remainder, so a single-timeout run
-    # budget would expire with entries that were never given a socket - and
-    # report them as dead. The run deadline still earns its keep on its own:
-    # `create_connection` applies its timeout to the connect and never to the
-    # `getaddrinfo` in front of it, so one unresolvable host would otherwise
-    # hang the command outright.
-    timeout = cfg.timeout_seconds
+    timeout = cfg.smart_proxy_timeout_seconds
     workers = min(len(entries), MAX_PROBE_THREADS)
-    results = _run_probes([e.url for e in entries], timeout, workers)
+    if len(entries) > TABLE_ROWS:
+        print_info(f"Testing {len(entries)} proxies, {workers} at a time ...")
+    results = [
+        _verdict(result, timeout)
+        for result in _run_probes([e.url for e in entries], timeout, workers)
+    ]
+    working = [(e, detail) for e, (ok, detail) in zip(entries, results, strict=True) if ok]
 
-    # SafeTable, not Table, for the same reason as `proxy list`: these URLs come
-    # from `proxy import` (an arbitrary file), so one poisoned line with an
-    # unbalanced tag would kill the render.
+    # SafeTable, not Table: these URLs come from `proxy import` (an arbitrary
+    # file) or a third-party list, so one poisoned line with an unbalanced tag
+    # would kill the render. `_safe_source`, not the raw url: a pooled proxy
+    # routinely carries `user:pass@` and this table gets screenshotted.
     table = SafeTable(
-        title="Proxy Reachability",
+        title="Proxies that reach MEGA",
         show_header=True,
         header_style="kiwi.table.header",
         border_style="kiwi.table.border",
     )
     table.add_column("URL", style="kiwi.path")
-    table.add_column("Reachable")
+    table.add_column("Works")
     table.add_column("Latency / reason", style="kiwi.muted")
-    reachable = 0
-    for entry, result in zip(entries, results, strict=True):
-        # `_safe_source`, not the raw url: a pooled proxy routinely carries
-        # `user:pass@` and this table gets screenshotted into bug reports.
-        # An entry that never got a socket must not be called dead: "no" next
-        # to a working proxy is how someone deletes a good one.
-        if result is _NOT_STARTED:
-            ok, detail = False, "not probed within the run budget"
-        elif result is _NO_ANSWER:
-            ok, detail = False, f"no answer within {timeout}s"
-        else:
-            ok, detail = result
-        reachable += ok
-        table.add_row(_safe_source(entry.url), "yes" if ok else "no", detail)
+    if len(entries) <= TABLE_ROWS:
+        for entry, (ok, detail) in zip(entries, results, strict=True):
+            table.add_row(_safe_source(entry.url), "yes" if ok else "no", detail)
+    else:
+        fastest = sorted(working, key=lambda pair: float(pair[1].split()[0]))
+        for entry, detail in fastest[:TABLE_ROWS]:
+            table.add_row(_safe_source(entry.url), "yes", detail)
+        failures: dict[str, int] = {}
+        for ok, detail in results:
+            if not ok:
+                kind = _reason_kind(detail)
+                failures[kind] = failures.get(kind, 0) + 1
+        for kind, count in sorted(failures.items(), key=lambda item: -item[1]):
+            table.add_row(f"({count} proxies)", "no", kind)
     _console.print(table)
-    print_info(f"{reachable}/{len(entries)} reachable.")
-    if not reachable:
+    print_info(f"{len(working)}/{len(entries)} reach MEGA.")
+
+    if keep_working:
+        with pool_transaction() as stored:
+            for entry in list(stored.list()):
+                stored.remove(entry.url)
+            for entry, _detail in working:
+                stored.add(entry.url)
+        print_success(f"Kept {len(working)} working proxies as your own.")
+        if pool.list_sources:
+            print_info(
+                "Your proxy lists are still fetched on every download; "
+                "`kiwi-dl proxy remove-list URL` to use only the kept ones."
+            )
+    if not working:
         # A reported failure never exits 0.
         ctx.exit(1)
