@@ -291,6 +291,9 @@ class ChunkRouter:
                 )
             return Route(self.static)
 
+        # Proxies are wanted: let the proxy lists refresh when they are due.
+        if pool.refresher is not None:
+            pool.refresher.tick()
         with self._lock:
             excluded = self._excluded.setdefault(worker, set())
             sticky = self._sticky.get(worker)
@@ -302,6 +305,8 @@ class ChunkRouter:
                 return Route(_proxies_for(entry.url), entry.url)
             self._sticky.pop(worker, None)
             excluded.clear()
+        if pool.refresher is not None:
+            pool.refresher.ran_dry()
         if policy.strict:
             raise ProxyRequiredError(
                 message="force_smart_proxy is on and every proxy in the pool is banned or "

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import socket
 import threading
@@ -13,7 +12,8 @@ from urllib.parse import parse_qsl, urlsplit
 
 import click
 
-from ..proxy.runtime import _load_persisted_pool, _pool_path
+from ..proxy.lists import PROXY_SCHEMES, ProxyList, validate_list
+from ..proxy.runtime import _load_persisted_pool, _pool_path, pool_payload
 from ..ui.prompts import confirmed, print_error, print_info, print_success
 from ..ui.theme import SafeTable, make_console
 from ..utils.atomic import atomic_write_text
@@ -57,15 +57,15 @@ def pool_transaction():
         # observe the winner's write instead of overwriting it.
         pool = _load_persisted_pool()
         yield pool
-        payload = json.dumps({"proxies": [e.url for e in pool.list()]}, indent=2)
-        atomic_write_text(path, payload)
+        atomic_write_text(path, pool_payload(pool))
     finally:
         lock.release()
 
 
 @click.group("proxy", short_help="Manage the Smart Proxy pool.")
 def proxy_cmd() -> None:
-    """Add, remove, list proxies in the Smart Proxy pool."""
+    """Add, remove, list proxies in the Smart Proxy pool, and the proxy lists
+    it is filled from."""
 
 
 @proxy_cmd.command("list", short_help="List all proxies in the pool.")
@@ -85,8 +85,10 @@ def proxy_list(ctx: click.Context, config_urls: bool) -> None:
         for url in _urls_from_config(cfg):
             pool.add(url)
     entries = pool.list()
+    _print_lists(pool.list_sources)
     if not entries:
-        _console.print("[kiwi.muted]No proxies stored.[/kiwi.muted]")
+        if not pool.list_sources:
+            _console.print("[kiwi.muted]No proxies stored.[/kiwi.muted]")
         return
     # SafeTable, not Table: these URLs come from `proxy import` (an arbitrary
     # file) or a pasted list, so a cell is untrusted. One poisoned line with an
@@ -146,7 +148,8 @@ def proxy_clear() -> None:
     with pool_transaction() as pool:
         for entry in list(pool.list()):
             pool.remove(entry.url)
-    print_success("Proxy pool cleared.")
+        pool.list_sources = []
+    print_success("Proxy pool cleared (proxies and proxy lists).")
 
 
 @proxy_cmd.command("import", short_help="Import proxies from a text file (one per line).")
@@ -161,6 +164,53 @@ def proxy_import(path: Path) -> None:
             pool.add(line)
             added += 1
     print_success(f"Imported {added} proxy/proxies.")
+
+
+@proxy_cmd.command("add-list", short_help="Add a proxy list URL, fetched when a download starts.")
+@click.argument("url")
+@click.option(
+    "--scheme",
+    type=click.Choice(PROXY_SCHEMES),
+    default="http",
+    show_default=True,
+    help="Scheme for the list's bare host:port lines; free lists are usually one kind.",
+)
+@click.pass_context
+def proxy_add_list(ctx: click.Context, url: str, scheme: str) -> None:
+    """Fill the pool from a proxy list, MegaBasterd-style.
+
+    The list is fetched each time a download starts and again every hour while
+    proxies are in use, or 30 s after none is left. kiwi-dl ships no lists.
+    """
+    try:
+        source = validate_list(url, scheme)
+    except ValueError as exc:
+        print_error(str(exc))
+        ctx.exit(2)
+    with pool_transaction() as pool:
+        pool.list_sources = [s for s in pool.list_sources if s.url != url] + [source]
+    print_success(f"Added proxy list {_safe_source(url)} ({scheme}).")
+
+
+@proxy_cmd.command("remove-list", short_help="Remove a proxy list URL.")
+@click.argument("url")
+def proxy_remove_list(url: str) -> None:
+    with pool_transaction() as pool:
+        before = len(pool.list_sources)
+        pool.list_sources = [s for s in pool.list_sources if s.url != url]
+        removed = len(pool.list_sources) != before
+    if removed:
+        print_success(f"Removed proxy list {_safe_source(url)}")
+    else:
+        print_error(f"Not found: {_safe_source(url)}")
+
+
+def _print_lists(sources: list[ProxyList]) -> None:
+    if not sources:
+        return
+    _console.print("Proxy lists (fetched when a download starts):", markup=False)
+    for source in sources:
+        _console.print(f"  {_safe_source(source.url)}  ({source.scheme})", markup=False)
 
 
 _SECRETISH_PARAM = re.compile(r"(?i)(token|key|sig|hmac|secret|auth|pass|cred|session|sid|nonce)")

@@ -9,8 +9,10 @@ The active pool is the union of:
 1. The persisted pool in `<data_dir>/proxies.json` (managed by `kiwi-dl proxy
    add / import`).
 2. Comma- or whitespace-separated URLs from the `smart_proxy_url` config key.
+3. The proxy lists in the same file (`kiwi-dl proxy add-list`), fetched when the
+   pool is built and kept fresh by a `ListRefresher` for the rest of the command.
 
-Adding proxies is what turns them on. If both sources are empty, or
+Adding proxies or lists is what turns them on. If there are none, or
 `smart_proxy_mode` is "off", the helper returns None - callers should treat
 that as "no smart-proxy routing". A
 malformed `proxies.json` raises ProxyPoolCorruptionError instead: "no routing"
@@ -20,12 +22,16 @@ must be something the user chose, never something a broken file decided.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 
 from ..config import Config, data_dir
 from ..utils.corruption import preserve_corrupt_file
+from .lists import ListRefresher, validate_list
 from .smart_proxy import SmartProxyPool
+
+log = logging.getLogger(__name__)
 
 _SPLIT_RE = re.compile(r"[\s,;]+")
 
@@ -67,7 +73,8 @@ def _load_persisted_pool() -> SmartProxyPool:
     """Load `<data_dir>/proxies.json`, validating its shape.
 
     Raises ProxyPoolCorruptionError rather than guessing at a payload that is
-    not `{"proxies": [<url str>, ...]}`: an unreadable or malformed pool is
+    not `{"proxies": [<url str>, ...], "lists": [{"url": ..., "scheme": ...}]}`
+    ("lists" optional): an unreadable or malformed pool is
     silently the same as "no proxies", which would send traffic direct that the
     user meant to route through a proxy.
     """
@@ -87,10 +94,30 @@ def _load_persisted_pool() -> SmartProxyPool:
     proxies = data.get("proxies", [])
     if not isinstance(proxies, list) or not all(isinstance(url, str) for url in proxies):
         raise _corrupt(path, '"proxies" must be a list of URL strings', raw)
-    pool = SmartProxyPool()
-    for url in proxies:
-        pool.add(url)
+    lists = data.get("lists", [])
+    if not isinstance(lists, list):
+        raise _corrupt(path, '"lists" must be a list', raw)
+    pool = SmartProxyPool(proxies)
+    for item in lists:
+        if not isinstance(item, dict) or not isinstance(item.get("url"), str):
+            raise _corrupt(path, 'each of "lists" must be {"url": ..., "scheme": ...}', raw)
+        try:
+            pool.list_sources.append(validate_list(item["url"], item.get("scheme", "http")))
+        except ValueError as exc:
+            raise _corrupt(path, f"a proxy list entry is unusable ({exc})", raw) from exc
     return pool
+
+
+def pool_payload(pool: SmartProxyPool) -> str:
+    """What `proxies.json` holds: the user's own entries and the list URLs,
+    never the entries fetched from a list."""
+    return json.dumps(
+        {
+            "proxies": [e.url for e in pool.list() if not e.source],
+            "lists": [{"url": s.url, "scheme": s.scheme} for s in pool.list_sources],
+        },
+        indent=2,
+    )
 
 
 def _urls_from_config(cfg: Config) -> list[str]:
@@ -109,17 +136,43 @@ def effective_pool(cfg: Config) -> SmartProxyPool | None:
     """Return the SmartProxyPool the command should use, or None.
 
     The pool merges the persisted on-disk pool with anything listed in
-    `smart_proxy_url`. Returns None if `smart_proxy_mode` is "off" OR the
-    merged pool is empty.
+    `smart_proxy_url`, and with the entries of every proxy list, fetched here.
+    Returns None if `smart_proxy_mode` is "off" OR there are no proxies and no
+    lists. A pool with lists is returned even when the first fetch found
+    nothing: its refresher tries again once a download wants a proxy.
     """
     if cfg.smart_proxy_mode == "off":
         return None
     pool = _load_persisted_pool()
     for url in _urls_from_config(cfg):
         pool.add(url)
-    if not pool.list():
+    if pool.list_sources:
+        attach_list_refresher(pool, strict=cfg.force_smart_proxy).refresh_now()
+    if not pool.list() and not pool.list_sources:
         return None
     return pool
+
+
+def attach_list_refresher(pool: SmartProxyPool, *, strict: bool) -> ListRefresher:
+    """Give `pool` a refresher for its lists, fetching them the way policy allows.
+
+    Lists are fetched direct: it is not MEGA traffic. Under `force_smart_proxy`
+    nothing may go direct, so the fetch goes through one of the user's own
+    proxies, and is skipped (with a warning) when they have none.
+    """
+    proxies: dict[str, str] | None = None
+    if strict:
+        own = next((e for e in pool.list() if not e.source), None)
+        proxies = {"http": own.url, "https": own.url} if own else None
+    refresher = ListRefresher(pool, pool.list_sources, proxies=proxies)
+    if strict and proxies is None:
+        log.warning(
+            "force_smart_proxy is on and there is no proxy of your own to fetch the "
+            "proxy lists through; they are not fetched"
+        )
+        refresher.sources = []
+    pool.refresher = refresher
+    return refresher
 
 
 def effective_pool_for_cmd(

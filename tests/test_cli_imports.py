@@ -33,12 +33,23 @@ def test_cli_subcommands_registered():
 
 
 def test_proxy_subcommands_bring_your_own_proxies():
+    """Proxies and proxy lists come from the user; nothing is bundled to fetch."""
     result = CliRunner().invoke(cli, ["proxy", "--help"])
     assert result.exit_code == 0
-    for sub in ("add", "remove", "list", "clear", "import", "test"):
-        assert sub in result.output
-    assert "fetch" not in result.output, "kiwi-dl ships no public proxy lists"
-    assert "serve" not in result.output
+    listing = result.output.split("Commands:", 1)[1].splitlines()
+    commands = {line.split()[0] for line in listing if line.strip()}
+    assert {
+        "add",
+        "remove",
+        "list",
+        "clear",
+        "import",
+        "test",
+        "add-list",
+        "remove-list",
+    } <= commands
+    assert "fetch" not in commands, "kiwi-dl ships no public proxy lists"
+    assert "serve" not in commands
 
 
 def test_download_has_parallel_option():
