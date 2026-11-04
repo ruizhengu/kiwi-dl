@@ -12,6 +12,10 @@ once on a new route. A 403 or 410 is first taken as the CDN URL ageing out:
 the URL is refreshed and tried through the same proxy, which is banned only if
 it refuses the fresh URL as well. A direct 509 goes to the downloader, which
 opens the proxy window, waits from the quota budget, or stops the download.
+
+A stop cuts the request off mid-flight (see `inflight`). Whatever the attempt
+raises after that is the stop's doing, not the route's: it ends as a
+cancellation, and no proxy is blamed for it.
 """
 
 from __future__ import annotations
@@ -80,13 +84,15 @@ def fetch_chunk(
     proxied = route.proxy is not None
     encrypted = bytearray()
     try:
-        with requests.get(
+        with dl._inflight.get(
             cdn_url,
             headers=headers,
             timeout=dl.smart_proxy.proxy_timeout(dl.timeout) if proxied else dl.timeout,
             stream=True,
             proxies=route.proxies,
         ) as resp:
+            if resp is None:
+                return  # stopped before the response arrived
             if resp.status_code in URL_EXPIRY_STATUS:
                 if proxied and dl._router.url_refused(route, generation):
                     _proxy_fault(
@@ -172,10 +178,14 @@ def fetch_chunk(
         requests.Timeout,
         requests.exceptions.ChunkedEncodingError,
     ) as exc:
+        if dl._stop_event.is_set():
+            return  # the stop shut the socket: a cancellation, not a dropped proxy
         if proxied:
             _proxy_fault(dl, route, ban=False, why=type(exc).__name__)
         raise
     except requests.RequestException as exc:
+        if dl._stop_event.is_set():
+            return
         # The client cannot use this proxy at all - a socks5:// entry without
         # PySocks installed raises InvalidSchema before any byte is sent - so
         # it is benched like a broken proxy instead of failing the download.
@@ -184,6 +194,9 @@ def fetch_chunk(
         raise
 
     if len(encrypted) != chunk.size:
+        if dl._stop_event.is_set():
+            # A body without a length just ends when the stop shuts the socket.
+            return
         if proxied:
             _proxy_fault(dl, route, ban=False, why="connection dropped mid-chunk")
         raise NonRetryableTransferError(
