@@ -174,16 +174,17 @@ def release_destination(path: Path, *, remove_claim: bool = False) -> None:
 
     By default the `.mbclaim` sidecar stays: the transfer is unfinished or
     stopped, and a resume will claim the same name again. A leftover sidecar
-    is inert - empty, unlocked once its owner releases or exits (the OS drops
-    advisory locks on close) - and the next claim reuses it.
+    is inert - one line of marker text, unlocked once its owner releases or
+    exits (the OS drops advisory locks on close) - and the next claim reuses it.
 
     `remove_claim=True` is for a transfer that finished: nothing will resume
-    it, so the sidecar is deleted. It is unlinked while still locked, never
-    after `release()`: unlinking after would let a process that had the old
-    file open lock that orphan while a third created and locked a fresh file
-    under the same name - two owners of one destination. Unlinked while held,
-    a process that locks the orphan finds the name moved and retries on the
-    current file (see `utils/filelock`).
+    it, so the sidecar is deleted - but only a sidecar kiwi-dl created, never
+    a real file that happens to have its name (see `utils/filelock`). It is
+    unlinked while still locked, never after `release()`: unlinking after
+    would let a process that had the old file open lock that orphan while a
+    third created and locked a fresh file under the same name - two owners of
+    one destination. Unlinked while held, a process that locks the orphan
+    finds the name moved and retries on the current file.
     """
     with _claim_lock:
         key = os.path.normcase(str(path))

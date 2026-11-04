@@ -9,6 +9,10 @@ inode, another creates and locks a fresh file.
 They are now deleted once the download has finished, while still locked, and
 `FileLock.acquire` only trusts a lock whose path still names the file it
 locked. The race tests below drive that interleaving step by step.
+
+Review of PR #10 added two rules: only a lock file kiwi-dl created (stamped
+with `LOCK_FILE_MARKER`) is ever deleted, since a real file can carry a
+sidecar's name; and retrying after a moved name respects the timeout.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from __future__ import annotations
 import multiprocessing as mp
 import os
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -26,7 +31,7 @@ from kiwi_dl.core.errors import IntegrityError, TransferQuotaError
 from kiwi_dl.core.folder_downloader import MegaFolderDownloader
 from kiwi_dl.core.state import TransferState, clear_state, load_state, save_state
 from kiwi_dl.utils import filelock as filelock_module
-from kiwi_dl.utils.filelock import FileLock, FileLockError
+from kiwi_dl.utils.filelock import LOCK_FILE_MARKER, FileLock, FileLockError
 from kiwi_dl.utils.helpers import CLAIM_SUFFIX, claim_destination, release_destination
 from tests.fake_mega import FakeCdn
 
@@ -110,6 +115,24 @@ def test_a_download_that_fails_its_mac_check_is_not_finished(cdn, tmp_path, monk
     assert "f.bin.mbstate.lock" in _tree(tmp_path)
 
 
+@pytest.mark.parametrize("sidecar", ["movie.mkv.mbclaim", "movie.mkv.mbstate.lock"])
+@pytest.mark.parametrize("content", [b"someone's data", b""])
+def test_a_finished_download_keeps_a_real_file_named_like_its_sidecar(
+    cdn, tmp_path, sidecar, content
+):
+    """A folder share can hold both `movie.mkv` and `movie.mkv.mbclaim`. The
+    lock uses such a file as it is, and finishing must not delete it - even
+    with `overwrite` off, which is the default here."""
+    real = tmp_path / sidecar
+    real.write_bytes(content)
+
+    result = cdn.download_with(MegaDownloader(api=None, max_workers=2), tmp_path / "movie.mkv")
+
+    assert result.integrity_ok
+    assert real.read_bytes() == content
+    assert _tree(tmp_path) == sorted(["movie.mkv", sidecar])
+
+
 # ---------------------------------------------------------------------------
 # Removing a lock file is safe only while holding it
 # ---------------------------------------------------------------------------
@@ -118,8 +141,19 @@ def test_a_download_that_fails_its_mac_check_is_not_finished(cdn, tmp_path, monk
 def test_release_with_remove_deletes_the_lock_file(tmp_path):
     lock = FileLock(tmp_path / "x.lock")
     lock.acquire(timeout=0)
+    assert (tmp_path / "x.lock").read_bytes() == LOCK_FILE_MARKER
     lock.release(remove=True)
     assert not (tmp_path / "x.lock").exists()
+
+
+@pytest.mark.parametrize("content", [b"precious", b"", LOCK_FILE_MARKER + b"and more"])
+def test_a_lock_never_writes_into_or_removes_a_file_it_did_not_create(tmp_path, content):
+    path = tmp_path / "x.lock"
+    path.write_bytes(content)
+    lock = FileLock(path)
+    lock.acquire(timeout=0)
+    lock.release(remove=True)
+    assert path.read_bytes() == content
 
 
 def test_a_waiter_on_a_removed_lock_file_moves_to_the_current_one(tmp_path, monkeypatch):
@@ -171,6 +205,52 @@ def test_remove_leaves_a_file_that_is_not_ours_alone(tmp_path):
     path.write_bytes(b"")
     lock.release(remove=True)
     assert path.exists()
+
+
+def _lose_the_name_after_every_open(monkeypatch, path: Path) -> list[int]:
+    """Rival holders that remove `path` between our open() and our flock()."""
+    real_open = os.open
+    opens: list[int] = []
+    give_up_at = time.monotonic() + 5.0  # fail instead of hanging
+
+    def open_then_lose_the_name(file, flags, *args, **kwargs):
+        fd = real_open(file, flags, *args, **kwargs)
+        if str(file) == str(path):
+            opens.append(fd)
+            assert time.monotonic() < give_up_at, "acquire kept retrying past its timeout"
+            os.unlink(file)
+        return fd
+
+    monkeypatch.setattr(filelock_module.os, "open", open_then_lose_the_name)
+    return opens
+
+
+@pytest.mark.parametrize("timeout", [0, 0.2])
+def test_a_name_that_keeps_moving_cannot_hold_acquire_past_its_timeout(
+    tmp_path, monkeypatch, timeout
+):
+    path = tmp_path / "x.lock"
+    opens = _lose_the_name_after_every_open(monkeypatch, path)
+    started = time.monotonic()
+
+    with pytest.raises(FileLockError):
+        FileLock(path).acquire(timeout=timeout)
+
+    assert time.monotonic() - started < timeout + 1.0
+    if timeout == 0:
+        assert len(opens) == 1, "a try-lock must make exactly one attempt"
+
+
+def test_a_claim_moves_on_when_a_name_keeps_moving(tmp_path, monkeypatch):
+    """`claim_destination` holds the process-wide claim lock while it tries
+    each name, so a name that never settles must cost one attempt, not a hang."""
+    _lose_the_name_after_every_open(monkeypatch, tmp_path / ("movie.mkv" + CLAIM_SUFFIX))
+
+    claimed = claim_destination(tmp_path / "movie.mkv")
+    try:
+        assert claimed == tmp_path / "movie (1).mkv"
+    finally:
+        release_destination(claimed)
 
 
 def test_clear_state_with_remove_lock_leaves_nothing(tmp_path):
@@ -242,4 +322,11 @@ def test_processes_finishing_and_claiming_one_name_never_share_it(tmp_path):
         clashes = pool.map(_claim_and_finish_repeatedly, args)
 
     assert sum(clashes) == 0, f"two processes held one destination {sum(clashes)} times"
+    # A rival can finish on a sidecar in the instant between its creation and
+    # its stamp; unstamped, it is kept rather than deleted. Any such leftover
+    # is stamped by now, and the next finished claim of that name removes it.
+    for sidecar in out.glob("*" + CLAIM_SUFFIX):
+        assert sidecar.read_bytes() == LOCK_FILE_MARKER, f"{sidecar.name} is not a kiwi-dl lock"
+        claimed = claim_destination(out / sidecar.name.removesuffix(CLAIM_SUFFIX))
+        release_destination(claimed, remove_claim=True)
     assert not list(out.glob("*" + CLAIM_SUFFIX)), "a finished claim left its sidecar"
