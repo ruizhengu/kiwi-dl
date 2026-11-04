@@ -38,7 +38,7 @@ Then:
 
 ```bash
 kiwi-dl                                  # the menu
-mg-dl 'https://mega.nz/file/ID#KEY'      # or download straight away
+kdl 'https://mega.nz/file/ID#KEY'        # or download straight away
 ```
 
 kiwi-dl runs on macOS (Apple Silicon or Intel) and Linux. The installer sets it
@@ -85,9 +85,9 @@ the files. A Ctrl-C during a download stops it and brings you back here.
 ### Download
 
 ```bash
-mg-dl 'https://mega.nz/file/ID#KEY'
-mg-dl 'https://mega.nz/folder/ID#KEY' -o ~/Downloads --select
-mg-dl -i links.txt -P 3
+kdl 'https://mega.nz/file/ID#KEY'
+kdl 'https://mega.nz/folder/ID#KEY' -o ~/Downloads --select
+kdl -i links.txt -P 3
 ```
 
 Put links in single quotes: the shell treats `#` and `!` specially, and old-style

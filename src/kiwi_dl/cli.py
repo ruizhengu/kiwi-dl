@@ -1,4 +1,4 @@
-"""Entry points: `kiwi-dl` (download, info, proxy, config) and `mg-dl` (download)."""
+"""Entry points: `kiwi-dl` (download, info, proxy, config) and `kdl` (download)."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _redacted_argv(argv: list[str]) -> list[str]:
 def _startup_args_for_log() -> list[str]:
     """Return process args only when this process looks like the CLI itself."""
     argv0 = str(sys.argv[0]).replace("\\", "/").rsplit("/", 1)[-1].lower()
-    cli_names = {"kiwi-dl", "mg-dl", "__main__.py"}
+    cli_names = {"kiwi-dl", "kdl", "__main__.py"}
     if argv0 in cli_names:
         return _redacted_argv(sys.argv[1:])
     return []
@@ -264,20 +264,20 @@ cli.add_command(completion_cmd)
 
 
 @click.command(
-    "mg-dl",
+    "kdl",
     context_settings=_CONTEXT,
-    help="Download public MEGA links: `mg-dl 'https://mega.nz/file/ID#KEY' [-o DIR]`. "
+    help="Download public MEGA links: `kdl 'https://mega.nz/file/ID#KEY' [-o DIR]`. "
     "The same as `kiwi-dl download`. Not affiliated with Mega Limited.",
 )
 @_global_options
 @click.pass_context
-def mg_dl(ctx: click.Context, verbose: int, quiet: bool, log_file: bool | None, **options) -> None:
+def kdl(ctx: click.Context, verbose: int, quiet: bool, log_file: bool | None, **options) -> None:
     _bootstrap(ctx, verbose, quiet, log_file, "download")
     ctx.invoke(download, **options)
 
 
-# Every `download` option and argument, so `mg-dl --help` lists them as its own.
-mg_dl.params.extend(download.params)
+# Every `download` option and argument, so `kdl --help` lists them as its own.
+kdl.params.extend(download.params)
 
 
 # Set by the SIGINT handler below; read by `main` to tell Ctrl-C apart from
@@ -303,9 +303,9 @@ def main() -> int:
     return _run(cli, "kiwi-dl")
 
 
-def mg_dl_main() -> int:
-    """`mg-dl` console script."""
-    return _run(mg_dl, "mg-dl")
+def kdl_main() -> int:
+    """`kdl` console script."""
+    return _run(kdl, "kdl")
 
 
 def _run(command: click.Command, prog_name: str) -> int:
