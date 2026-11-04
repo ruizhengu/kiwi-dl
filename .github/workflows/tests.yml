@@ -43,8 +43,8 @@ jobs:
       # The console scripts are how a pip/pipx install is actually run.
       - name: Smoke-test installed commands
         run: |
-          mg-dl --help
-          mg-dl --version
+          kdl --help
+          kdl --version
           kiwi-dl --help
           python -m kiwi_dl --help
 
@@ -82,7 +82,7 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           kiwi-dl --version
-          mg-dl --help > /dev/null
+          kdl --help > /dev/null
           kiwi-dl update --dry-run
           kiwi-dl completion zsh > /dev/null
           kiwi-dl remove --purge --yes

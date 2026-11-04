@@ -83,7 +83,7 @@ def test_startup_args_handles_python_module_entrypoint(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# `mg-dl URL` is `kiwi-dl download URL`
+# `kdl URL` is `kiwi-dl download URL`
 # ---------------------------------------------------------------------------
 
 
@@ -102,38 +102,38 @@ def _record_downloads(monkeypatch, tmp_path):
     return calls
 
 
-def test_mg_dl_downloads_a_link_into_the_output_dir(monkeypatch, tmp_path):
-    from kiwi_dl.cli import mg_dl
+def test_kdl_downloads_a_link_into_the_output_dir(monkeypatch, tmp_path):
+    from kiwi_dl.cli import kdl
 
     calls = _record_downloads(monkeypatch, tmp_path)
     out = tmp_path / "out"
-    result = CliRunner().invoke(mg_dl, ["https://mega.nz/file/abc123#xyz", "-o", str(out)])
+    result = CliRunner().invoke(kdl, ["https://mega.nz/file/abc123#xyz", "-o", str(out)])
 
     assert result.exit_code == 0, result.output
     assert calls == [("https://mega.nz/file/abc123#xyz", str(out))]
 
 
-def test_mg_dl_takes_the_global_flags_anywhere(monkeypatch, tmp_path):
-    from kiwi_dl.cli import mg_dl
+def test_kdl_takes_the_global_flags_anywhere(monkeypatch, tmp_path):
+    from kiwi_dl.cli import kdl
 
     calls = _record_downloads(monkeypatch, tmp_path)
     result = CliRunner().invoke(
-        mg_dl, ["https://mega.nz/file/abc123#xyz", "-q", "-o", str(tmp_path), "-v"]
+        kdl, ["https://mega.nz/file/abc123#xyz", "-q", "-o", str(tmp_path), "-v"]
     )
     assert result.exit_code == 0, result.output
     assert len(calls) == 1
 
 
-def test_mg_dl_without_a_link_is_a_usage_error():
-    from kiwi_dl.cli import mg_dl
+def test_kdl_without_a_link_is_a_usage_error():
+    from kiwi_dl.cli import kdl
 
-    result = CliRunner().invoke(mg_dl, [])
+    result = CliRunner().invoke(kdl, [])
     assert result.exit_code == 2
     assert "No URLs given" in result.output
 
 
-def test_mg_dl_reports_a_quota_stop_with_exit_code_3(monkeypatch, tmp_path):
-    from kiwi_dl.cli import mg_dl
+def test_kdl_reports_a_quota_stop_with_exit_code_3(monkeypatch, tmp_path):
+    from kiwi_dl.cli import kdl
     from kiwi_dl.core.downloader import MegaDownloader
     from kiwi_dl.core.errors import TransferQuotaError
 
@@ -141,14 +141,14 @@ def test_mg_dl_reports_a_quota_stop_with_exit_code_3(monkeypatch, tmp_path):
         raise TransferQuotaError(time_left=60)
 
     monkeypatch.setattr(MegaDownloader, "download_link", over_quota)
-    result = CliRunner().invoke(mg_dl, ["https://mega.nz/file/abc123#xyz", "-o", str(tmp_path)])
+    result = CliRunner().invoke(kdl, ["https://mega.nz/file/abc123#xyz", "-o", str(tmp_path)])
     assert result.exit_code == 3
 
 
-def test_mg_dl_help_and_version():
-    from kiwi_dl.cli import mg_dl
+def test_kdl_help_and_version():
+    from kiwi_dl.cli import kdl
 
-    help_text = CliRunner().invoke(mg_dl, ["--help"]).output
-    assert "Usage: mg-dl" in help_text and "--output" in help_text
+    help_text = CliRunner().invoke(kdl, ["--help"]).output
+    assert "Usage: kdl" in help_text and "--output" in help_text
     assert "Not affiliated with Mega Limited" in help_text
-    assert "0.1.0" in CliRunner().invoke(mg_dl, ["--version"]).output
+    assert "0.1.0" in CliRunner().invoke(kdl, ["--version"]).output
