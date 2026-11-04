@@ -146,7 +146,7 @@ def test_a_folder_link_offers_the_file_picker(tmp_path):
 def test_a_link_password_goes_through_the_environment_never_argv(tmp_path):
     app, runner = _menu(PASSWORD_LINK, str(tmp_path), secret="hunter2")
     app.download()
-    (args, env) = runner.calls[0]
+    args, env = runner.calls[0]
     assert env == {"KIWI_DL_PASSWORD": "hunter2"}
     assert "hunter2" not in " ".join(args)
 
