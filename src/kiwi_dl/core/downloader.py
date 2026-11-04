@@ -65,6 +65,7 @@ from .errors import (
     TransferQuotaError,
     format_time_left,
 )
+from .inflight import InFlightRequests
 from .progress_ticker import progress_ticker
 from .range_validation import validate_range_response
 from .state import (
@@ -266,6 +267,9 @@ class MegaDownloader:
         # is chosen instead. --overwrite forces in-place replacement.
         self.overwrite = overwrite
         self._stop_event = threading.Event()
+        # The chunk requests on the wire, which `stop` cuts off: a slow proxy
+        # otherwise held a stopped worker for up to its read timeout.
+        self._inflight = InFlightRequests(self._stop_event)
         self._lock = threading.Lock()
         self._url_refresh_lock = threading.Lock()
         self._bytes_done = 0
@@ -292,8 +296,13 @@ class MegaDownloader:
         return self._selector.select()
 
     def stop(self) -> None:
-        """Signal all worker threads to stop."""
+        """Signal all worker threads to stop, and cut off the requests they wait on.
+
+        Every stop goes through here, the download's own included, so no
+        worker is left waiting on a response after the download has stopped.
+        """
         self._stop_event.set()
+        self._inflight.cut_off()
 
     @classmethod
     def stop_all(cls) -> None:
@@ -429,7 +438,7 @@ class MegaDownloader:
                 )
             # The quota is the exit IP's: every other chunk of this download
             # would only collect the same 509, so stop them before they ask.
-            self._stop_event.set()
+            self.stop()
             raise TransferQuotaError(
                 time_left=time_left, message=f"{TransferQuotaError(time_left)}; {why}"
             )
@@ -797,7 +806,7 @@ class MegaDownloader:
                                 # reports the cancellation. (A quota stop sets
                                 # the event itself and is reported as such.)
                                 continue
-                            self._stop_event.set()
+                            self.stop()
                             if self.keep_state_files_on_error:
                                 with self._lock:
                                     state_to_save = snapshot_state(state)
@@ -814,10 +823,10 @@ class MegaDownloader:
                     # Ctrl-C lands on this thread. Leaving the `with` joins the
                     # pool, and an executor runs EVERY queued task before it
                     # lets go - so a "cancelled" download used to fetch the
-                    # whole rest of the file first. Stop the workers (each checks
-                    # between 64 KiB blocks and wakes from retry backoff) and
-                    # drop the chunks that have not started.
-                    self._stop_event.set()
+                    # whole rest of the file first. Stop the workers (their
+                    # requests are cut off, and they wake from retry backoff)
+                    # and drop the chunks that have not started.
+                    self.stop()
                     for _chunk, fut in futures:
                         fut.cancel()
                     raise

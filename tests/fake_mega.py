@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import os
 import threading
-import time
+from types import SimpleNamespace
+
+import requests
 
 from kiwi_dl.core.crypto import (
     aes_key_wrap_encrypt,
@@ -115,38 +117,69 @@ def attrs_of(blob_b64: str, key: bytes) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
-class _CdnResponse:
-    """The slice of `requests.Response` that `download_transport` reads."""
+class _Socket:
+    """The socket under a response, as far as a stop can reach it."""
 
-    def __init__(self, status_code: int, headers: dict, body: bytes = b"", delay: float = 0.0):
+    def __init__(self) -> None:
+        self.shut = threading.Event()
+
+    def shutdown(self, how) -> None:
+        self.shut.set()
+
+
+class _CdnResponse:
+    """The slice of `requests.Response` that `download_transport` reads.
+
+    A slow body waits for each block the way a socket read does. `close()`
+    from another thread does not end that wait, as it does not on a real
+    socket; shutting the socket down (`raw.connection.sock`) does, and the read
+    then fails like a dropped connection. `record` gets "reading" once the body
+    is being read and "closed" once the response is.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        headers: dict,
+        body: bytes = b"",
+        delay: float = 0.0,
+        record: dict | None = None,
+    ):
         self.status_code = status_code
         self.headers = headers
         self._body = body
         self._delay = delay
+        self._record = record if record is not None else {}
+        self.raw = SimpleNamespace(connection=SimpleNamespace(sock=_Socket()))
 
     def iter_content(self, chunk_size: int = 65536):
+        shut = self.raw.connection.sock.shut
+        self._record["reading"] = True
         for i in range(0, len(self._body), chunk_size):
             if self._delay:
-                time.sleep(self._delay)
+                shut.wait(self._delay)
+            if shut.is_set():
+                raise requests.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead")
             yield self._body[i : i + chunk_size]
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc):
+        self.close()
         return False
 
     def close(self):
-        return None
+        self._record["closed"] = True
 
 
 class FakeCdn:
     """A MEGA storage server for one public file, reached through `requests.get`.
 
     Install with `monkeypatch.setattr("requests.get", cdn.get)`: that is the
-    call `download_transport` makes per chunk, so the real chunk path - range
-    guards, AES-CTR, chunk MACs, state commits and the on-disk MAC check - runs
-    unmodified against it.
+    call behind every chunk request (made in `inflight`, on a helper thread),
+    so the real chunk path - range guards, AES-CTR, chunk MACs, state commits
+    and the on-disk MAC check - runs unmodified against it.
 
     The ciphertext is produced from the format (AES-128-CTR, 64-bit nonce then
     a 64-bit block counter from zero), not with the client's cipher helper.
@@ -163,6 +196,10 @@ class FakeCdn:
     (Nov 2026): 509 with an empty body, `X-MEGA-Time-Left` and
     `Connection: close`. The URL that got the 509 is burned and answers 403
     from then on, as the live one did when asked again.
+
+    `block_delay` is the wait before each 64 KiB block of a body, for the
+    ranges that start at or past `slow_from` (all of them by default): a slow
+    proxy, or with a long delay one that has stopped sending.
     """
 
     def __init__(self, size: int = 3 * 1024 * 1024, block_delay: float = 0.0):
@@ -188,6 +225,7 @@ class FakeCdn:
         ]
         self.mac_iv_a32 = condense_mac(combine_chunk_macs(macs, self.aes_key))
         self.block_delay = block_delay
+        self.slow_from = 0
         self.requests: list[dict] = []
         self._lock = threading.Lock()
         self._urls = 0
@@ -248,7 +286,8 @@ class FakeCdn:
             206,
             {"Content-Range": f"bytes {start}-{end}/{self.size}", "Content-Length": str(len(body))},
             body,
-            self.block_delay,
+            self.block_delay if start >= self.slow_from else 0.0,
+            record,
         )
 
     def download_with(self, downloader, destination):
