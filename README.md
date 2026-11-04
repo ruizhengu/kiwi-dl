@@ -11,8 +11,8 @@
   <img src="assets/demo.svg" alt="kiwi-dl downloading a MEGA folder: a header, one row per file, and a summary" width="760">
 </div>
 
-> **Pre-release.** There is no tagged version yet, so the installer installs the
-> `main` branch. kiwi-dl is not affiliated with Mega Limited.
+> kiwi-dl is not affiliated with Mega Limited. What each release changed is in
+> the [changelog](CHANGELOG.md).
 
 ## Features
 
@@ -46,6 +46,13 @@ kiwi-dl runs on macOS (Apple Silicon or Intel) and Linux. The installer sets it
 up as an isolated tool with [uv](https://docs.astral.sh/uv/), or pipx if you
 have that instead, and tells you how to get uv if you have neither. To do it by
 hand: `uv tool install git+https://github.com/ruizhengu/kiwi-dl`.
+
+The installer follows the `main` branch. To install a release instead, pass
+its tag:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ruizhengu/kiwi-dl/main/install.sh | bash -s -- v0.1.0
+```
 
 ## Safety
 

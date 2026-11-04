@@ -41,7 +41,11 @@ esac
 printf '%s%skiwi-dl%s installer\n' "$bold" "$cyan" "$reset"
 note "⚙ ${os% } · $(uname -m)"
 if [ -z "${KIWI_DL_SOURCE:-}" ]; then
-  note "Pre-release: there is no tagged version yet, so this installs the ${REF} branch."
+  if [ "$REF" = main ]; then
+    note "Installing the latest main; pass a release tag, such as v0.1.0, to pin one."
+  else
+    note "Installing ${REF}."
+  fi
 fi
 echo
 

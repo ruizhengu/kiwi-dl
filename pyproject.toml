@@ -56,6 +56,7 @@ dev = [
 Homepage = "https://github.com/ruizhengu/kiwi-dl"
 Repository = "https://github.com/ruizhengu/kiwi-dl"
 "Bug Tracker" = "https://github.com/ruizhengu/kiwi-dl/issues"
+Changelog = "https://github.com/ruizhengu/kiwi-dl/blob/main/CHANGELOG.md"
 "Built on" = "https://github.com/KiaroSama/MegaBasterd-CLI"
 
 [project.scripts]
