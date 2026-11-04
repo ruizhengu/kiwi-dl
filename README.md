@@ -23,8 +23,8 @@
   within a second and keeps what has finished.
 - **Verified.** Every file is checked against the MAC in its link key before it
   counts as done.
-- **Quota-aware.** When MEGA's free quota runs out, kiwi-dl says when it resets,
-  or carries on through proxies you add.
+- **Quota-aware.** When MEGA's free quota runs out, kiwi-dl waits for it to come
+  back, like MegaBasterd, or carries on through proxies you add.
 - **Tidy.** One-line install, `kiwi-dl update`, and `kiwi-dl remove` to leave
   nothing behind.
 
@@ -106,16 +106,25 @@ Put links in single quotes: the shell treats `#` and `!` specially, and old-styl
 MEGA limits how much one IP may download anonymously. Once it is spent, MEGA
 answers HTTP 509 along with the time until it resets.
 
-**Without proxies**, kiwi-dl stops straight away and tells you when to try again:
+**Without proxies**, kiwi-dl waits for the quota to come back, as MegaBasterd
+does, and the download picks up where it stopped:
 
 ```text
-✗ Download failed: MEGA transfer quota exceeded (HTTP 509); it resets in about 4h 38m
+[11/04/26 14:02:11] WARNING  MEGA transfer quota exceeded and no proxy can take over;
+                             waiting for it to come back, retrying every minute (MEGA says
+                             it resets in about 4h 38m). Ctrl-C stops; the same command
+                             resumes.
 ```
 
-The exit code is 3. Run the same command after the reset and it resumes. To wait
-instead of stopping, give it a budget: `kiwi-dl config set quota_budget_seconds 7200`.
+- It tries again every minute, and at once if your network changes (a VPN
+  reconnecting, say). It reminds you every 15 minutes that it is still waiting.
+- Ctrl-C stops it and keeps what has finished; run the same command later to
+  resume.
+- To cap the wait: `kiwi-dl config set quota_budget_seconds 7200`. A value of `0`
+  stops at once with the reset time and exit code 3, and
+  `kiwi-dl config unset quota_budget_seconds` waits without a limit again.
 
-**With your own proxies**, the download carries on:
+**With your own proxies**, the download carries on without waiting:
 
 ```bash
 kiwi-dl proxy add 'http://user:pass@203.0.113.7:8080' 'socks5://198.51.100.2:1080'
@@ -166,7 +175,7 @@ kiwi-dl config path
 | `smart_proxy_mode` | `on-509` | `on-509`, `always` or `off`. |
 | `smart_proxy_window_seconds` | `3600` | How long a 509 keeps downloads on proxies (60–86400). |
 | `smart_proxy_ban_seconds` | `300` | How long a failing proxy is skipped; `0` for the rest of the run. |
-| `quota_budget_seconds` | `0` | How long to wait for the quota when no proxy can help. |
+| `quota_budget_seconds` | *(no limit)* | How long to wait for the quota when no proxy can help; `0` stops at once. |
 | `force_smart_proxy` | `false` | Never connect directly. |
 | `smart_proxy_url` | *(none)* | Extra proxies, comma-separated. |
 | `run_command` | *(none)* | Run after each finished file, with its path as the argument. |
@@ -193,7 +202,7 @@ eval "$(kiwi-dl completion zsh)"    # tab completion; also bash and fish
 | `0` | Everything downloaded. |
 | `1` | Something failed. |
 | `2` | Bad usage, such as no link given. |
-| `3` | Only MEGA's quota stopped it; try again after the reset. |
+| `3` | Only MEGA's quota stopped it (when `quota_budget_seconds` caps the wait); try again after the reset. |
 | `130` | Stopped with Ctrl-C. |
 
 ## Development

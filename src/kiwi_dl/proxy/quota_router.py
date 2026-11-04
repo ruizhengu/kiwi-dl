@@ -18,11 +18,13 @@ The behaviour follows MegaBasterd's SmartProxy (reimplemented, not ported):
 * `always` keeps the window open from the start; `off` never uses the pool.
   Strict (`force_smart_proxy`) never goes direct at all.
 
-A direct 509 that no proxy can take over is a quota BLOCK. Blocks may be waited
-out up to `quota_budget_seconds` in total for the command - wall-clock time
-with at least one worker blocked - and the default of 0 stops at once with the
-reset time. The budget is what bounds the loop: every round of an exhausted
-pool ends in a direct attempt, and a refused one spends budget or ends it.
+A direct 509 that no proxy can take over is a quota BLOCK. Like MegaBasterd,
+the command waits blocks out: each blocked worker re-tries direct every minute,
+and at once when the local route changes. `quota_budget_seconds` bounds the
+wait for the command - wall-clock time with at least one worker blocked: None
+(the config default) waits for as long as it takes, and 0 stops at once with
+the reset time. Every round of an exhausted pool ends in a direct attempt, and
+a refused one waits or ends the download.
 
 API calls are not routed here. An anonymous `a:g` keeps answering normally
 while the quota is spent, so the API stays direct unless strict.
@@ -32,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -53,6 +56,11 @@ MAX_WINDOW_SECONDS = 86400
 
 # How often an open window re-reads the local route (one local syscall).
 ROUTE_CHECK_SECONDS = 10.0
+
+# While the command waits for the quota, it says so at most this often. Every
+# blocked worker re-tries each minute; telling the user each time was one
+# warning per worker per minute.
+WAIT_NOTICE_SECONDS = 900.0
 
 
 def _local_route() -> str | None:
@@ -77,6 +85,10 @@ class SmartProxyPolicy:
 
     One instance is shared by every download of the command, because the quota
     belongs to the exit IP: once one file hits it, all of them have.
+
+    `budget_seconds` is how long quota blocks may be waited out; None is no
+    limit. Built directly it defaults to 0, so the engine never waits unless
+    asked; the commands pass the config's value, which defaults to None.
     """
 
     def __init__(
@@ -87,7 +99,7 @@ class SmartProxyPolicy:
         window_seconds: int = 3600,
         ban_seconds: int = 300,
         strict: bool = False,
-        budget_seconds: int = 0,
+        budget_seconds: int | None = 0,
         clock: Callable[[], float] = time.monotonic,
         route_fingerprint: Callable[[], str | None] = _local_route,
     ):
@@ -98,7 +110,7 @@ class SmartProxyPolicy:
         self.window_seconds = max(MIN_WINDOW_SECONDS, min(MAX_WINDOW_SECONDS, window_seconds))
         self.ban_seconds = max(0, ban_seconds)
         self.strict = strict
-        self.budget_seconds = max(0, budget_seconds)
+        self.budget_seconds = None if budget_seconds is None else max(0, budget_seconds)
         self._clock = clock
         self._route_fingerprint = route_fingerprint
         self._lock = threading.Lock()
@@ -108,6 +120,7 @@ class SmartProxyPolicy:
         self._blocked = 0
         self._blocked_since = 0.0
         self._budget_used = 0.0
+        self._wait_noticed_at: float | None = None
 
     @classmethod
     def from_config(cls, cfg, pool) -> SmartProxyPolicy:
@@ -170,12 +183,28 @@ class SmartProxyPolicy:
     # -- the quota budget ---------------------------------------------------
 
     def budget_left(self) -> float:
-        """Seconds of quota blocks the command may still wait out."""
+        """Seconds of quota blocks the command may still wait out (inf: no limit)."""
+        if self.budget_seconds is None:
+            return math.inf
         with self._lock:
             used = self._budget_used
             if self._blocked:
                 used += self._clock() - self._blocked_since
             return self.budget_seconds - used
+
+    def wait_notice_due(self) -> bool:
+        """Whether this wait should tell the user; the rest only go to the log file.
+
+        The first wait of the command says so, and then one every
+        `WAIT_NOTICE_SECONDS` however many workers are waiting.
+        """
+        with self._lock:
+            now = self._clock()
+            last = self._wait_noticed_at
+            if last is not None and now - last < WAIT_NOTICE_SECONDS:
+                return False
+            self._wait_noticed_at = now
+            return True
 
     @contextmanager
     def blocked(self) -> Iterator[None]:
