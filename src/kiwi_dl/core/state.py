@@ -609,7 +609,7 @@ def save_state(state: TransferState) -> None:
             file_lock.release()
 
 
-def clear_state(destination: str | Path) -> None:
+def clear_state(destination: str | Path, *, remove_lock: bool = False) -> None:
     """Remove the state file for a finished transfer, under the save lock.
 
     Unlinking outside the lock raced every writer: `save_state` can be between
@@ -617,12 +617,11 @@ def clear_state(destination: str | Path) -> None:
     for a transfer that just finished (or lost the file out from under it
     mid-write). The same two locks, in the same order, settle it.
 
-    The `.lock` sidecar is deliberately NOT unlinked - see the long docstring
-    on `utils/helpers.release_destination`: between `release()` and `unlink()`
-    another process can lock the still-open inode while the unlink frees the
-    NAME, so a third process locks a fresh inode and two owners believe they
-    are exclusive. A leftover sidecar is empty, holds no lock once its owner
-    exits, and the next transfer reuses it.
+    By default the `.lock` sidecar stays, because the transfer goes on (a
+    fresh start) or may be retried, and it will be locked again. An empty
+    sidecar holds no lock once its owner exits and the next save reuses it.
+    `remove_lock=True` is for a transfer that finished: the sidecar is deleted
+    while still locked, which `utils/filelock` explains is the one safe order.
     """
     from ..utils.filelock import FileLockError
 
@@ -636,6 +635,7 @@ def clear_state(destination: str | Path) -> None:
             # than leaving it: a stale file is re-validated on the next resume.
             log.warning("Could not lock %s to clear resume state: %s", sp.name, exc)
             return
+        cleared = False
         try:
             if _disk_guard(sp)[0] > STATE_FORMAT_VERSION:
                 log.warning(
@@ -645,5 +645,6 @@ def clear_state(destination: str | Path) -> None:
                 return
             with contextlib.suppress(FileNotFoundError):
                 sp.unlink()
+            cleared = True
         finally:
-            file_lock.release()
+            file_lock.release(remove=remove_lock and cleared)

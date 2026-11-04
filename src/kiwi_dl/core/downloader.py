@@ -571,8 +571,9 @@ class MegaDownloader:
                 "Destination already exists or is in use; writing to unique path %s instead",
                 destination.name,
             )
+        finished = False
         try:
-            return self._run_claimed_download(
+            result = self._run_claimed_download(
                 file_size=file_size,
                 aes_key=aes_key,
                 nonce=nonce,
@@ -582,8 +583,12 @@ class MegaDownloader:
                 on_progress=on_progress,
                 all_chunks=all_chunks,
             )
+            finished = True
+            return result
         finally:
-            release_destination(destination)
+            # A finished download leaves only its file. Anything else keeps
+            # the `.mbclaim` for the resume that will claim this name again.
+            release_destination(destination, remove_claim=finished)
 
     def _run_claimed_download(
         self,
@@ -737,7 +742,9 @@ class MegaDownloader:
                     message = "File MAC verification failed; resume state was removed."
                 raise IntegrityError(message=message)
 
-        clear_state(destination)
+        # Every chunk is committed and the MAC checked out (when verifying):
+        # nothing will resume this, so its state lock goes with the state.
+        clear_state(destination, remove_lock=True)
         # Elapsed covers the whole operation including integrity verification.
         elapsed = time.monotonic() - self._start_time
         return DownloadResult(
