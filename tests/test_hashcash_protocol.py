@@ -1,7 +1,8 @@
 """Protocol facts and edge cases for the hashcash solver.
 
-These pin down what the older tests left implicit: the exact threshold for each
-easiness band, that a solution header decodes back to a prefix that verifies,
+These pin down what the older tests left implicit: the header formats MEGA's
+own clients use, the exact threshold for each easiness band, that a solution
+header carries a prefix that verifies,
 that the external solver's time comes out of the same deadline as the built-in
 search, and which external-solver outputs are taken as an answer.
 """
@@ -50,15 +51,46 @@ def test_threshold_matches_the_protocol_formula(easiness: int, threshold: int) -
     assert challenge.threshold == threshold
 
 
-def test_solution_header_decodes_to_a_prefix_that_verifies(monkeypatch) -> None:
+# The sample header in MEGA's C++ SDK (src/posix/net.cpp), documented there as
+# <version>:<easiness>:<timestamp>:<b64token>.
+MEGA_SDK_EXAMPLE = (
+    "1:100:1731410499:RUvIePV2PNO8ofg8xp1aT5ugBcKSEzwKoLBw9o4E6F_fmn44eC3oMpv388UtFl2K"
+)
+
+
+def test_parses_the_example_header_from_megas_sdk() -> None:
+    challenge = parse_challenge(MEGA_SDK_EXAMPLE)
+    assert challenge.version == 1
+    assert challenge.easiness == 100
+    assert challenge.token == _from_b64url(MEGA_SDK_EXAMPLE.rsplit(":", 1)[1])
+    assert len(challenge.token) == TOKEN_BYTES
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "1:100:" + MEGA_SDK_EXAMPLE.rsplit(":", 1)[1],  # no timestamp
+        MEGA_SDK_EXAMPLE + ":extra",
+    ],
+)
+def test_challenge_without_exactly_four_fields_is_rejected(header: str) -> None:
+    with pytest.raises(HashcashError, match="Malformed"):
+        parse_challenge(header)
+
+
+def test_solution_header_echoes_the_token_and_carries_a_prefix_that_verifies(
+    monkeypatch,
+) -> None:
     monkeypatch.setenv("KIWI_DL_HASHCASH_NATIVE", "0")
     token = bytes(range(TOKEN_BYTES))
+    token_b64 = _b64url(token)
 
-    solution = hashcash.build_solution_header(f"1:255:{_b64url(token)}", timeout=30.0)
+    solution = hashcash.build_solution_header(f"1:255:1731410499:{token_b64}", timeout=30.0)
 
-    version, easiness, token_text, prefix_text = solution.split(":")
-    assert (version, easiness) == ("1", "255")
-    assert _from_b64url(token_text) == token
+    version, token_text, prefix_text = solution.split(":")
+    assert version == "1"
+    assert token_text == token_b64
+    assert len(prefix_text) == 6
     prefix = _from_b64url(prefix_text)
     assert len(prefix) == 4
     head = int.from_bytes(hashlib.sha256(prefix + token * REPEAT).digest()[:4], "big")
@@ -69,7 +101,7 @@ def test_solution_header_decodes_to_a_prefix_that_verifies(monkeypatch) -> None:
 def test_token_with_characters_outside_base64url_is_rejected(junk: str) -> None:
     text = _b64url(b"A" * TOKEN_BYTES)
     with pytest.raises(HashcashError, match="base64"):
-        parse_challenge(f"1:192:{text[:10]}{junk}{text[11:]}")
+        parse_challenge(f"1:192:1731410499:{text[:10]}{junk}{text[11:]}")
 
 
 def test_external_solver_time_comes_out_of_the_same_deadline(monkeypatch, tmp_path) -> None:

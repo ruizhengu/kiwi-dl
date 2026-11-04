@@ -25,7 +25,7 @@ def _encode_b64url(data: bytes) -> str:
 
 def test_parse_challenge_roundtrip():
     token = b"A" * TOKEN_BYTES
-    header = f"1:255:{_encode_b64url(token)}"
+    header = f"1:255:1731410499:{_encode_b64url(token)}"
     ch = parse_challenge(header)
     assert ch.version == 1
     assert ch.easiness == 255
@@ -36,7 +36,7 @@ def test_parse_challenge_rejects_malformed():
     with pytest.raises(ValueError):
         parse_challenge("not-a-challenge")
     with pytest.raises(ValueError):
-        parse_challenge("1:nope:" + _encode_b64url(b"A" * TOKEN_BYTES))
+        parse_challenge("1:nope:1731410499:" + _encode_b64url(b"A" * TOKEN_BYTES))
 
 
 def test_solve_easy_challenge_finds_nonce(monkeypatch):
@@ -57,12 +57,13 @@ def test_solve_easy_challenge_finds_nonce(monkeypatch):
 def test_build_solution_header_format(monkeypatch):
     monkeypatch.setenv("KIWI_DL_HASHCASH_NATIVE", "0")
     token = b"\x02" * TOKEN_BYTES
-    header = f"1:192:{_encode_b64url(token)}"
+    header = f"1:192:1731410499:{_encode_b64url(token)}"
     solution = build_solution_header(header, timeout=30.0)
     parts = solution.split(":")
-    assert len(parts) == 4
+    assert len(parts) == 3
     assert parts[0] == "1"
-    assert parts[1] == "192"
+    assert parts[1] == _encode_b64url(token)
+    assert len(parts[2]) == 6  # 4 bytes, unpadded base64url
 
 
 def test_threshold_increases_with_easiness():

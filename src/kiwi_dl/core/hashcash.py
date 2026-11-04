@@ -1,13 +1,22 @@
 """MEGA's hashcash proof-of-work.
 
 When MEGA wants a client to slow down, it answers an API request with HTTP 402
-and an ``X-Hashcash`` challenge: a version, an *easiness* and a 48-byte token.
-The client has to find a 4-byte prefix such that
+and a challenge header
+
+    X-Hashcash: <version>:<easiness>:<timestamp>:<token>
+    e.g.        1:100:1731410499:RUvIePV2PNO8ofg8xp1aT5ugBcKSEzwKoLBw9o4E6F_fmn44eC3oMpv388UtFl2K
+
+where the token is 48 bytes of unpadded base64url (64 characters). The client
+has to find a 4-byte prefix such that
 
     SHA-256(prefix || token repeated 262,144 times)
 
 starts with a big-endian 32-bit number no greater than a threshold derived from
-the easiness, then repeat the request with that prefix attached.
+the easiness, then repeat the request with
+
+    X-Hashcash: 1:<token, exactly as received>:<prefix in unpadded base64url>
+
+This is the format MEGA's own clients use (its C++ SDK and its web client).
 
 The search runs on threads (``hashlib`` releases the GIL while it hashes, so
 they really do run in parallel). An external solver can be plugged in through
@@ -138,16 +147,24 @@ def _decode_token(text: str) -> bytes:
     return token
 
 
-def parse_challenge(header: str) -> HashcashChallenge:
-    """Decode an ``X-Hashcash`` challenge of the form ``version:easiness:token``.
-
-    The token is unpadded base64url. Raises HashcashError (a ValueError) for
-    anything malformed or out of range.
-    """
+def _challenge_fields(header: str) -> list[str]:
     fields = header.strip().split(":")
-    if len(fields) != 3:
-        raise HashcashError(f"Malformed hashcash challenge: expected 3 fields, got {len(fields)}")
-    version_text, easiness_text, token_text = fields
+    if len(fields) != 4:
+        raise HashcashError(
+            "Malformed hashcash challenge: expected version:easiness:timestamp:token, "
+            f"got {len(fields)} fields"
+        )
+    return fields
+
+
+def parse_challenge(header: str) -> HashcashChallenge:
+    """Decode an ``X-Hashcash`` challenge, ``version:easiness:timestamp:token``.
+
+    The timestamp is not used (MEGA's own clients ignore it too). The token is
+    unpadded base64url. Raises HashcashError (a ValueError) for anything
+    malformed or out of range.
+    """
+    version_text, easiness_text, _timestamp, token_text = _challenge_fields(header)
     try:
         version = int(version_text)
         easiness = int(easiness_text)
@@ -160,19 +177,14 @@ def parse_challenge(header: str) -> HashcashChallenge:
 def build_solution_header(challenge_header: str, timeout: float = DEFAULT_TIMEOUT_S) -> str:
     """Solve a raw challenge header and return the value to send back.
 
-    The answer is ``version:easiness:token:prefix``, with the token and prefix
-    in unpadded base64url. Raises TimeoutError if no prefix is found in time.
+    The answer is ``version:token:prefix``: the token exactly as MEGA sent it
+    and the prefix in unpadded base64url. Raises TimeoutError if no prefix is
+    found in time.
     """
     challenge = parse_challenge(challenge_header)
     prefix = solve(challenge, timeout=timeout)
-    return ":".join(
-        (
-            str(challenge.version),
-            str(challenge.easiness),
-            _b64url_encode(challenge.token),
-            _b64url_encode(prefix),
-        )
-    )
+    token_text = _challenge_fields(challenge_header)[3]
+    return f"{challenge.version}:{token_text}:{_b64url_encode(prefix)}"
 
 
 # --- Solving -----------------------------------------------------------------
