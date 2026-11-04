@@ -274,6 +274,47 @@ def test_how_each_proxy_failure_is_treated(cdn, tmp_path, first_pick, fault, ban
     assert pool.is_usable(A) is not banned
 
 
+def test_a_proxy_that_refuses_every_url_is_banned_after_one_fresh_url(cdn, tmp_path, first_pick):
+    """Seen live: one public proxy answered 403 to eight fresh URLs in a row
+    while other routes were served from them. Each 403 was taken as the URL
+    ageing out, so the worker kept the proxy, spent the chunk's eight attempts
+    on refreshes and backoff, and the download failed."""
+    cdn.proxy_status[A] = 403
+    pool = SmartProxyPool([A, B])
+
+    _download(cdn, tmp_path, SmartProxyPolicy(pool, mode="always"))
+
+    through_a = [r for r in cdn.requests if r["route"] == A]
+    assert len(through_a) == 2, "one fresh URL tells a refusing proxy from an aged-out URL"
+    assert through_a[0]["url"] != through_a[1]["url"]
+    assert not pool.is_usable(A)
+    assert all(r["route"] == B for r in cdn.requests[2:])
+
+
+def test_an_aged_out_url_through_a_proxy_is_refreshed_and_the_proxy_kept(cdn, tmp_path, first_pick):
+    cdn.burned.add("http://cdn.invalid/dl/url1")  # the first URL handed out has aged out
+    pool = SmartProxyPool([A, B])
+
+    _download(cdn, tmp_path, SmartProxyPolicy(pool, mode="always"))
+
+    assert [r["status"] for r in cdn.requests].count(403) == 1
+    assert {r["route"] for r in cdn.requests} == {A}, "the same proxy carried on"
+    assert pool.is_usable(A)
+
+
+def test_a_proxy_is_blamed_for_403s_only_on_two_urls_with_nothing_served_between(first_pick):
+    router = ChunkRouter(SmartProxyPolicy(SmartProxyPool([A]), mode="always"))
+    route = router.route()
+
+    assert router.url_refused(route, 1) is False, "the first 403 may be the URL ageing out"
+    assert router.url_refused(route, 1) is False, "the same URL twice proves nothing"
+    assert router.url_refused(route, 0) is False, "a request that left before the refresh"
+    router.proxy_succeeded(route)
+    assert router.url_refused(route, 2) is False, "it served a chunk in between"
+    assert router.url_refused(route, 3) is True
+    assert router.url_refused(Route(None), 9) is False, "the direct route is never blamed"
+
+
 def test_a_ban_is_for_everyone_and_an_exclusion_for_one_worker(first_pick):
     pool = SmartProxyPool([A, B])
     router = ChunkRouter(SmartProxyPolicy(pool, mode="always"))

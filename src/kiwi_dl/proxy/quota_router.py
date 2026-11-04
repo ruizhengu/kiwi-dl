@@ -275,6 +275,7 @@ class ChunkRouter:
         self._lock = threading.Lock()
         self._sticky: dict[int, str] = {}
         self._excluded: dict[int, set[str]] = {}
+        self._refused: dict[str, int] = {}  # proxy -> newest URL generation it answered 403 to
 
     def route(self) -> Route:
         policy = self.policy
@@ -325,7 +326,25 @@ class ChunkRouter:
 
     def proxy_succeeded(self, route: Route) -> None:
         if route.proxy is not None and self.policy.pool is not None:
+            with self._lock:
+                self._refused.pop(route.proxy, None)
             self.policy.pool.report_success(route.proxy)
+
+    def url_refused(self, route: Route, generation: int) -> bool:
+        """Note a 403/410 through `route.proxy` for URL `generation`; True if the proxy is to blame.
+
+        MEGA answers 403 to a CDN URL that has aged out, so a first refusal is
+        taken as that: the URL is refreshed and the same proxy tried again. A
+        proxy that also refuses a newer URL, with nothing served through it in
+        between, is refusing everything. Seen live: one answered 403 to eight
+        fresh URLs in a row while other routes were served from them.
+        """
+        if route.proxy is None:
+            return False
+        with self._lock:
+            earlier = self._refused.get(route.proxy)
+            self._refused[route.proxy] = generation if earlier is None else max(earlier, generation)
+        return earlier is not None and earlier < generation
 
     def proxy_failed(self, route: Route, *, ban: bool, why: str) -> None:
         """Take `route.proxy` off this worker; with `ban`, off every worker."""
