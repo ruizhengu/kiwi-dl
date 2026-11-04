@@ -75,4 +75,4 @@ else
   ok "Installed"
   note "The install folder is not on your PATH yet: run \`${hint}\`, then open a new terminal."
 fi
-note "Run kiwi-dl for the menu, or mg-dl <link> to download straight away."
+note "Run kiwi-dl for the menu, or kdl <link> to download straight away."

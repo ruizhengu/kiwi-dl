@@ -59,7 +59,7 @@ Repository = "https://github.com/ruizhengu/kiwi-dl"
 "Built on" = "https://github.com/KiaroSama/MegaBasterd-CLI"
 
 [project.scripts]
-mg-dl = "kiwi_dl.cli:mg_dl_main"
+kdl = "kiwi_dl.cli:kdl_main"
 kiwi-dl = "kiwi_dl.cli:main"
 
 [tool.setuptools.package-dir]
