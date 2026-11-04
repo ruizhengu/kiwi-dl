@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="assets/icon.svg" alt="kiwi-dl icon: a kiwi fruit slice with a red M at its core" width="112">
   <h1>kiwi-dl</h1>
   <p><b>Download MEGA links from your Mac or Linux terminal: resumable, verified, quota-aware.</b></p>
   <p>
