@@ -62,6 +62,10 @@ _OPTIONAL_STR_KEYS = {
     "all_finished_command",
 }
 
+# Integer fields where null means "no limit". A sentinel like -1 would not do:
+# `config set KEY -1` reads the -1 as an option.
+_OPTIONAL_INT_KEYS = {"quota_budget_seconds"}
+
 # Values of these keys may contain secrets and are never echoed in warnings
 # or `config show`/`config get`. (`smart_proxy_url` can carry credentials too;
 # `display_value` scrubs every string.)
@@ -106,9 +110,10 @@ class Config:
     # Quota recovery: wait this many seconds when MEGA returns EOVERQUOTA/-17
     quota_wait_seconds: int = 3600
     quota_max_wait_loops: int = 24  # ~24h with the default
-    # A chunk 509 that no proxy can take over may be waited out up to this
-    # many seconds in total per command; 0 stops at once with the reset time.
-    quota_budget_seconds: int = 0
+    # A chunk 509 that no proxy can take over is waited out, like MegaBasterd
+    # does: for as long as it takes (null), up to this many seconds in total
+    # per command, or not at all (0 stops at once with the reset time).
+    quota_budget_seconds: int | None = None
 
     # Post-transfer hook: run this command (with the downloaded path appended
     # as exactly one argument) after every successful download.
@@ -132,7 +137,10 @@ _VALIDATORS: dict[str, tuple] = {
     "timeout_seconds": (lambda v: v > 0, "a positive integer"),
     "quota_wait_seconds": (lambda v: v >= 0, "a non-negative integer"),
     "quota_max_wait_loops": (lambda v: v >= 0, "a non-negative integer"),
-    "quota_budget_seconds": (lambda v: v >= 0, "a non-negative integer"),
+    "quota_budget_seconds": (
+        lambda v: v is None or (isinstance(v, int) and not isinstance(v, bool) and v >= 0),
+        "a non-negative integer, or null for no limit",
+    ),
     "smart_proxy_mode": (lambda v: v in ("off", "on-509", "always"), "one of off/on-509/always"),
     "smart_proxy_window_seconds": (
         lambda v: 60 <= v <= 86400,
@@ -503,6 +511,10 @@ class ConfigStore:
             if value.strip().lower() in _NULL_TOKENS:
                 return None
             return value
+        if key in _OPTIONAL_INT_KEYS:
+            if str(value).strip().lower() in _NULL_TOKENS:
+                return None
+            return int(value)
         current = getattr(self.config, key)
         if isinstance(current, bool):
             lowered = str(value).strip().lower()
@@ -538,7 +550,7 @@ class ConfigStore:
                 raise ValueError(f"{key} is deprecated: {DEPRECATED_CONFIG_KEYS[key]}")
             if not hasattr(self._config, key):
                 raise KeyError(f"Unknown config key: {key}")
-            if key not in _OPTIONAL_STR_KEYS:
+            if key not in _OPTIONAL_STR_KEYS | _OPTIONAL_INT_KEYS:
                 raise ValueError(
                     f"{key} is not a nullable field; use `config reset` to restore defaults"
                 )

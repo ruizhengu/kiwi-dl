@@ -28,6 +28,7 @@ so the public surface is unchanged:
 from __future__ import annotations
 
 import logging
+import math
 import socket
 import threading
 import time
@@ -399,9 +400,10 @@ class MegaDownloader:
         The first 509 on the direct route opens the command's proxy window, and
         the retry goes through the pool. A 509 that no proxy can take over - no
         pool, or this request went direct because the pool had nothing left -
-        is a quota block: it is waited out in steps from the command's quota
-        budget, and once the budget is spent the download stops with the reset
-        time. A route change during the wait ends it and closes the window.
+        is a quota block: it is waited out a minute at a time, for as long as
+        it takes or until the command's quota budget is spent, when the
+        download stops with the reset time. A route change during the wait
+        ends it and closes the window.
 
         Either way the URL is replaced first: the one that got the 509 answers
         403 from then on (observed live), and letting each retry find that out
@@ -432,12 +434,22 @@ class MegaDownloader:
 
         self._replace_quota_burned_url(generation)
         wait = min(left, QUOTA_RECHECK_SECONDS, time_left or QUOTA_RECHECK_SECONDS)
-        log.warning(
-            "MEGA transfer quota exceeded and no proxy can take over; waiting %s "
-            "(quota budget left: %s)",
-            format_time_left(round(wait)),
-            format_time_left(round(left)),
-        )
+        if policy.wait_notice_due():
+            resets = (
+                f"MEGA says it resets in about {format_time_left(time_left)}"
+                if time_left is not None
+                else "MEGA did not say when it resets"
+            )
+            limit = "" if math.isinf(left) else f" up to {format_time_left(round(left))} more"
+            log.warning(
+                "MEGA transfer quota exceeded and no proxy can take over; waiting%s for it "
+                "to come back, retrying every minute (%s). Ctrl-C stops; the same command "
+                "resumes.",
+                limit,
+                resets,
+            )
+        else:
+            log.debug("Still waiting for MEGA's transfer quota; retrying in %ds", round(wait))
         with policy.blocked():
             if self._wait_out_quota(wait):
                 policy.close_window()
@@ -922,7 +934,7 @@ class MegaDownloader:
         # router and the chunk retried at once, outside the retry budget. The
         # loop ends because every proxy a worker gives up on is banned or
         # excluded, an exhausted pool sends it direct, and a refused direct
-        # attempt either spends quota budget or raises.
+        # attempt either waits for the quota or raises.
         while True:
             try:
                 fetch_chunk(self, chunk, aes_key, nonce, destination, state)
