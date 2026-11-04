@@ -279,7 +279,9 @@ class MegaDownloader:
         # CDN URL state (shared across workers; refreshed on expiry)
         self._cdn_url_lock = threading.Lock()
         self._cdn_url: str = ""
-        self._url_generation = 0  # Bumped each time the URL is refreshed
+        # Bumped each time the URL is refreshed or a new download starts, never
+        # reset: the router, which outlives one download, compares them.
+        self._url_generation = 0
         self._url_resolver: Callable[[], str] | None = None
 
         with _live_lock:
@@ -538,7 +540,7 @@ class MegaDownloader:
         # Configure the URL state for workers
         with self._cdn_url_lock:
             self._cdn_url = cdn_url
-            self._url_generation = 0
+            self._url_generation += 1
             self._url_resolver = url_resolver
 
         all_chunks = list(iter_chunks(file_size))

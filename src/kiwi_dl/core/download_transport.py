@@ -8,8 +8,9 @@ fault and a deterministic refusal is what that predicate exists to encode.
 Every failure on a pool proxy is reported to the download's `ChunkRouter`,
 which bans the proxy (an HTTP error, a mangled range) or sets it aside for this
 worker (a timeout, a dropped connection, a 429), and the attempt is retried at
-once on a new route. CDN URL expiry is the exception - that is the URL ageing
-out, not the proxy misbehaving. A direct 509 goes to the downloader, which
+once on a new route. A 403 or 410 is first taken as the CDN URL ageing out:
+the URL is refreshed and tried through the same proxy, which is banned only if
+it refuses the fresh URL as well. A direct 509 goes to the downloader, which
 opens the proxy window, waits from the quota budget, or stops the download.
 """
 
@@ -87,9 +88,18 @@ def fetch_chunk(
             proxies=route.proxies,
         ) as resp:
             if resp.status_code in URL_EXPIRY_STATUS:
-                # Refresh the URL exactly once per generation, then retry.
-                # These are not proxy faults, so don't penalise the proxy.
+                if proxied and dl._router.url_refused(route, generation):
+                    _proxy_fault(
+                        dl, route, ban=True, why=f"HTTP {resp.status_code} for a fresh URL too"
+                    )
+                # MEGA's answer for a URL that has aged out: refresh it once
+                # per generation, then retry.
                 dl._refresh_url(generation)
+                if proxied:
+                    # Straight back through the same proxy with the new URL,
+                    # outside the retry budget: served means the URL had aged
+                    # out, refused again means the proxy is to blame.
+                    raise RouteAgain("CDN URL refreshed")
                 raise CdnUrlExpired(
                     message=f"CDN URL expired (HTTP {resp.status_code}) for chunk {chunk.index}"
                 )
