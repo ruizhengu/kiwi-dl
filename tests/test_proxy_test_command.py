@@ -1,4 +1,4 @@
-"""`mb proxy test` must probe the pool without leaking what it stores.
+"""`kiwi-dl proxy test` must find the proxies that reach MEGA, without leaking them.
 
 The pool was write-only in practice: `proxy list` shows the entries and their
 success/failure counters, but a freshly imported list has all-zero counters, so
@@ -7,21 +7,22 @@ it fail.
 
 Three properties are load-bearing and each has a test here:
 
-* the verdict - a listening socket is reachable, a closed port is not, and the
-  exit code is non-zero only when NOTHING answered (that is what a
-  `mb proxy test && mb download ...` script keys on);
+* the verdict - a proxy works only when MEGA itself answered through it (an
+  open port that is not a proxy does not count, nor does a proxy answering
+  for itself), and the exit code is non-zero only when NOTHING worked (that
+  is what a `kiwi-dl proxy test && kdl ...` script keys on);
 * redaction - a pooled URL routinely carries `user:pass@`, and `proxy add` /
   `proxy import` store it exactly as typed, so the schemeless form that
   bypassed `redact_text` must go through `_safe_source`;
 * rendering - the URLs come from a remote list or an arbitrary file, so the
   table must treat a cell as literal text and survive an unbalanced tag.
 
-Bounds are tested too: the probes run concurrently, and the per-proxy timeout
-comes from the existing `timeout_seconds` config rather than a new knob.
+Bounds are tested too: the probes run concurrently on a fixed set of threads,
+and the per-proxy timeout is `smart_proxy_timeout_seconds`.
 
-No probe here leaves the loopback interface: the "live" proxy is a real
-listening socket bound on 127.0.0.1 and the "dead" one is a port that was just
-released.
+No probe here leaves the loopback interface: the working proxy is an HTTP
+server on 127.0.0.1 answering the way MEGA does, and the dead one is a port
+that was just released.
 """
 
 from __future__ import annotations
@@ -29,7 +30,9 @@ from __future__ import annotations
 import contextlib
 import logging
 import socket
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from click.testing import CliRunner
@@ -60,9 +63,56 @@ def _capture_logs(caplog):
     caplog.set_level(logging.DEBUG)
 
 
+def _serve(headers: dict[str, str], status: int):
+    """A loopback HTTP 'proxy' that answers every request with `status` and `headers`."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - http.server's naming
+            self.send_response(status)
+            for key, value in headers.items():
+                self.send_header(key, value)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd
+
+
 @pytest.fixture
 def live_port():
-    """A real listening socket on loopback - the only "reachable" proxy used."""
+    """A proxy that relays to MEGA: MEGA's own 301 and CORS header come back."""
+    httpd = _serve(
+        {
+            "Location": "https://mega.nz",
+            "Access-Control-Allow-Headers": "Content-Type, X-Hashcash, MEGA-Chrome-Antileak",
+        },
+        301,
+    )
+    try:
+        yield httpd.server_address[1]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+@pytest.fixture
+def not_mega_port():
+    """Something that speaks HTTP but is not MEGA: a captive portal, say."""
+    httpd = _serve({"Content-Type": "text/html"}, 200)
+    try:
+        yield httpd.server_address[1]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+@pytest.fixture
+def silent_port():
+    """A listening socket that never answers: an open port is not a proxy."""
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     sock.listen(8)
@@ -102,7 +152,7 @@ def _blob(result, caplog) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_a_listening_socket_is_reported_reachable(pool_dir, live_port):
+def test_a_proxy_that_relays_to_mega_works(pool_dir, live_port):
     assert _run(["add", f"http://127.0.0.1:{live_port}"]).exit_code == 0
 
     result = _run(["test"])
@@ -110,6 +160,24 @@ def test_a_listening_socket_is_reported_reachable(pool_dir, live_port):
     assert result.exit_code == 0, result.output
     assert "yes" in result.output, result.output
     assert "ms" in result.output, f"no latency reported: {result.output}"
+
+
+def test_an_open_port_that_is_not_a_proxy_does_not_count(pool_dir, silent_port):
+    assert _run(["add", f"http://127.0.0.1:{silent_port}"]).exit_code == 0
+
+    result = _run(["test"], smart_proxy_timeout_seconds=1)
+
+    assert result.exit_code == 1, result.output
+    assert "Timeout" in result.output, result.output
+
+
+def test_a_proxy_answering_for_itself_does_not_count(pool_dir, not_mega_port):
+    assert _run(["add", f"http://127.0.0.1:{not_mega_port}"]).exit_code == 0
+
+    result = _run(["test"])
+
+    assert result.exit_code == 1, result.output
+    assert "answered HTTP 200, but not as MEGA" in result.output, result.output
 
 
 def test_a_closed_port_is_unreachable_and_exits_non_zero(pool_dir, dead_port):
@@ -123,7 +191,7 @@ def test_a_closed_port_is_unreachable_and_exits_non_zero(pool_dir, dead_port):
     assert "Error" in result.output, f"no failure reason reported: {result.output}"
 
 
-def test_one_reachable_proxy_is_enough_for_a_zero_exit(pool_dir, live_port, dead_port):
+def test_one_working_proxy_is_enough_for_a_zero_exit(pool_dir, live_port, dead_port):
     assert _run(["add", f"http://127.0.0.1:{live_port}"]).exit_code == 0
     assert _run(["add", f"http://127.0.0.1:{dead_port}"]).exit_code == 0
 
@@ -225,9 +293,9 @@ def test_the_per_proxy_timeout_comes_from_the_config(pool_dir, dead_port, monkey
     )
     assert _run(["add", f"http://127.0.0.1:{dead_port}"]).exit_code == 0
 
-    _run(["test"], timeout_seconds=7)
+    _run(["test"], smart_proxy_timeout_seconds=7)
 
-    assert seen == [7], f"the probe did not use timeout_seconds: {seen}"
+    assert seen == [7], f"the probe did not use smart_proxy_timeout_seconds: {seen}"
 
 
 def test_the_probes_run_concurrently(pool_dir, monkeypatch):
@@ -249,15 +317,16 @@ def test_a_probe_that_outlives_the_run_budget_does_not_hang_the_command(pool_dir
     """The whole run is capped, not just each socket: a stuck DNS lookup ignores
     the connect timeout, so the command must give up on its own."""
     monkeypatch.setattr(
-        proxy_module, "_probe", lambda url, timeout: (time.sleep(3), (True, "never"))[1]
+        proxy_module, "_probe", lambda url, timeout: (time.sleep(5), (True, "never"))[1]
     )
     assert _run(["add", "http://127.0.0.1:9100"]).exit_code == 0
 
     start = time.monotonic()
-    result = _run(["test"], timeout_seconds=1)
+    result = _run(["test"], smart_proxy_timeout_seconds=1)
     elapsed = time.monotonic() - start
 
-    assert elapsed < 2.5, f"the run was not capped: {elapsed:.2f}s"
+    # One wave gets two probe timeouts (connect, then read): 2 s, not 5.
+    assert elapsed < 3.5, f"the run was not capped: {elapsed:.2f}s"
     assert result.exit_code == 1, result.output
 
 
@@ -272,22 +341,22 @@ def test_a_pool_larger_than_the_thread_cap_still_reports(pool_dir, monkeypatch, 
     """
     monkeypatch.setattr(proxy_module, "MAX_PROBE_THREADS", 1)
     monkeypatch.setattr(
-        proxy_module, "_probe", lambda url, timeout: (time.sleep(3), (True, "never"))[1]
+        proxy_module, "_probe", lambda url, timeout: (time.sleep(5), (True, "never"))[1]
     )
     for port in (9201, 9202):
         assert _run(["add", f"http://127.0.0.1:{port}"]).exit_code == 0
 
     start = time.monotonic()
-    result = _run(["test"], timeout_seconds=1)
+    result = _run(["test"], smart_proxy_timeout_seconds=1)
     elapsed = time.monotonic() - start
 
     assert "CancelledError" not in _blob(result, caplog)
     assert result.exit_code == 1, result.output
-    assert "0/2 reachable" in result.output, result.output
-    # The run budget is one connect timeout per WAVE, so two entries against a
-    # one-thread cap get 2s - still bounded, and still far under the 6s the
+    assert "0/2 reach MEGA" in result.output, result.output
+    # The run budget is two probe timeouts per WAVE, so two entries against a
+    # one-thread cap get 4s - still bounded, and still far under the 10s the
     # probes themselves want.
-    assert elapsed < 4, f"the run was not capped: {elapsed:.2f}s"
+    assert elapsed < 5, f"the run was not capped: {elapsed:.2f}s"
     # Distinct reasons on purpose: one probe was tried and did not answer, the
     # other never got a socket. Calling the second "no" would be a wrong
     # verdict about a proxy that may be perfectly healthy.
@@ -315,3 +384,88 @@ def test_a_stuck_probe_cannot_hold_the_process_open_after_the_report(monkeypatch
         assert all(t.daemon for t in stuck), "a non-daemon probe thread blocks interpreter exit"
     finally:
         release.set()
+
+
+# ---------------------------------------------------------------------------
+# long lists and keeping the working ones
+# ---------------------------------------------------------------------------
+
+
+def _fake_probe(working: set[str], seen: list[str] | None = None, delay: float = 0.0):
+    def probe(url, timeout):
+        if seen is not None:
+            seen.append(url)
+        if delay:
+            time.sleep(delay)
+        return (True, "12 ms") if url in working else (False, "ProxyError: refused")
+
+    return probe
+
+
+def test_keep_working_keeps_exactly_the_proxies_that_worked(pool_dir, monkeypatch):
+    """MegaBasterd's "save working proxies": the dead ones are gone afterwards."""
+    good, bad = "http://8.8.8.8:3128", "http://9.9.9.9:3128"
+    assert _run(["add", good, bad]).exit_code == 0
+    monkeypatch.setattr(proxy_module, "_probe", _fake_probe({good}))
+
+    result = _run(["test", "--keep-working"])
+
+    assert result.exit_code == 0, result.output
+    assert "Kept 1 working" in result.output
+    from kiwi_dl.proxy.runtime import _load_persisted_pool
+
+    assert [e.url for e in _load_persisted_pool().list()] == [good]
+
+
+def test_limit_tests_a_random_sample(pool_dir, monkeypatch):
+    for i in range(10):
+        assert _run(["add", f"http://8.8.8.{i + 1}:80"]).exit_code == 0
+    seen: list[str] = []
+    monkeypatch.setattr(proxy_module, "_probe", _fake_probe(set(), seen))
+
+    _run(["test", "--limit", "3"])
+
+    assert len(seen) == 3
+
+
+def test_a_long_list_is_summarised_and_probed_on_a_bounded_set_of_threads(pool_dir, monkeypatch):
+    """Thousands of entries: one thread each was thousands of threads at once."""
+    urls = [f"http://8.8.{i // 250}.{i % 250 + 1}:80" for i in range(300)]
+    assert _run(["add", *urls]).exit_code == 0
+    monkeypatch.setattr(proxy_module, "MAX_PROBE_THREADS", 16)
+    peak = [0]
+    baseline = threading.active_count()
+
+    def probe(url, timeout):
+        peak[0] = max(peak[0], threading.active_count() - baseline)
+        return (True, "40 ms") if url.endswith(".1:80") else (False, "ConnectTimeout: x")
+
+    monkeypatch.setattr(proxy_module, "_probe", probe)
+
+    result = _run(["test"])
+
+    assert result.exit_code == 0, result.output
+    assert peak[0] <= 16, f"{peak[0]} probe threads at once"
+    assert "2/300 reach MEGA" in result.output, result.output
+    assert "(298 proxies)" in result.output and "ConnectTimeout" in result.output
+
+
+def test_the_proxy_lists_entries_are_fetched_and_tested(pool_dir, monkeypatch):
+    from kiwi_dl.proxy.lists import ListRefresher
+
+    assert _run(["add-list", "https://lists.invalid/s5.txt", "--scheme", "socks5"]).exit_code == 0
+    real_init = ListRefresher.__init__
+
+    def init(self, pool, sources, **kwargs):
+        kwargs["fetch"] = lambda source, proxies=None: ["socks5://8.8.8.8:1080"]
+        real_init(self, pool, sources, **kwargs)
+
+    monkeypatch.setattr(ListRefresher, "__init__", init)
+    seen: list[str] = []
+    monkeypatch.setattr(proxy_module, "_probe", _fake_probe({"socks5://8.8.8.8:1080"}, seen))
+
+    result = _run(["test"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == ["socks5://8.8.8.8:1080"]
+    assert "lists.invalid/s5.txt: 1 proxies" in result.output

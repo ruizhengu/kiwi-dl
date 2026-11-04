@@ -124,14 +124,28 @@ does, and the download picks up where it stopped:
   stops at once with the reset time and exit code 3, and
   `kiwi-dl config unset quota_budget_seconds` waits without a limit again.
 
-**With your own proxies**, the download carries on without waiting:
+**With proxies**, the download carries on without waiting. Add your own, or
+the address of a proxy list, MegaBasterd-style:
 
 ```bash
 kiwi-dl proxy add 'http://user:pass@203.0.113.7:8080' 'socks5://198.51.100.2:1080'
-kiwi-dl proxy import proxies.txt     # one per line
-kiwi-dl proxy test                   # which ones answer
+kiwi-dl proxy import proxies.txt                       # one per line
+kiwi-dl proxy add-list 'https://example.com/socks5.txt' --scheme socks5
+kiwi-dl proxy test --keep-working                      # keep the ones that reach MEGA
 ```
 
+- A proxy list is fetched each time a download starts, and again every hour
+  while proxies are in use, or 30 seconds after none is left. Its bare
+  `ip:port` lines get the `--scheme` you gave it, and entries naming private
+  or local addresses are dropped.
+- `proxy test` asks MEGA for a tiny answer through every proxy (no link, no
+  quota) and shows which ones work. `--limit 200` tests a sample of a long
+  list; `--keep-working` keeps only the ones that worked.
+- Free public proxies are mostly dead at any moment, so a proxy that does not
+  connect within 5 seconds is passed over (`smart_proxy_timeout_seconds`).
+  They are also run by strangers: they can see which MEGA file you fetch, still
+  encrypted (the key never leaves your machine), and some alter what they
+  relay, which the final check catches.
 - Downloads go direct until MEGA answers 509. Then every download in the run
   switches to the proxies for an hour, or less if the quota resets sooner, and
   goes direct again after that.
@@ -175,6 +189,7 @@ kiwi-dl config path
 | `smart_proxy_mode` | `on-509` | `on-509`, `always` or `off`. |
 | `smart_proxy_window_seconds` | `3600` | How long a 509 keeps downloads on proxies (60–86400). |
 | `smart_proxy_ban_seconds` | `300` | How long a failing proxy is skipped; `0` for the rest of the run. |
+| `smart_proxy_timeout_seconds` | `5` | How long to wait for a proxy to connect before trying another (3–120). |
 | `quota_budget_seconds` | *(no limit)* | How long to wait for the quota when no proxy can help; `0` stops at once. |
 | `force_smart_proxy` | `false` | Never connect directly. |
 | `smart_proxy_url` | *(none)* | Extra proxies, comma-separated. |
