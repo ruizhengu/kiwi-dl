@@ -110,6 +110,7 @@ import multiprocessing as mp  # noqa: E402
 import os as _os  # noqa: E402
 from pathlib import Path as FsPath  # noqa: E402
 
+from kiwi_dl.utils.filelock import LOCK_FILE_MARKER  # noqa: E402
 from kiwi_dl.utils.helpers import CLAIM_SUFFIX  # noqa: E402
 
 
@@ -192,7 +193,7 @@ def test_released_sidecar_is_inert_and_reclaimable(tmp_path):
 
     sidecar = tmp_path / (claimed.name + CLAIM_SUFFIX)
     assert sidecar.exists(), "removing it would re-open the two-owner race"
-    assert sidecar.stat().st_size == 0, "the sidecar must carry no data"
+    assert sidecar.read_bytes() == LOCK_FILE_MARKER, "the sidecar must carry no transfer data"
 
     again = claim_destination(target)  # must not be blocked by the leftover
     try:
