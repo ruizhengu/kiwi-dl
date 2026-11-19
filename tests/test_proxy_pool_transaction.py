@@ -22,6 +22,7 @@ Item 7 rides along: `proxy remove` printed the raw URL, which carries
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -75,8 +76,15 @@ def _child(data_dir: Path, body: str) -> subprocess.CompletedProcess:
         {textwrap.indent(textwrap.dedent(body), "        ").lstrip()}
         """
     )
+    # The children print through rich like the real CLI does, and the real
+    # CLI reconfigures its streams to UTF-8; on Windows a pipe would
+    # otherwise default to cp1252 and choke on the ✓ glyph.
     return subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, timeout=120
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
 
 
@@ -147,6 +155,7 @@ def test_two_processes_adding_different_proxies_keep_both(pool_dir, tmp_path):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             )
         )
 

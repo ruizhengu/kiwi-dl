@@ -62,19 +62,33 @@ def sever(response: Any) -> None:
 
 
 def _cancel_socket_io(sock: Any) -> None:
-    """Windows: `CancelIoEx` on the socket handle aborts the `recv` another
-    thread is blocked in; the read raises and the transport classifies it as
-    a cancellation. Best effort: whatever refuses is suppressed."""
+    """Windows: end a `recv` another thread is blocked in.
+
+    Measured in CI: neither `shutdown()` (which `sever` does first on every
+    platform) nor `CancelIoEx` wakes a blocking WinSock `recv` issued by
+    another thread - the read sat out its whole timeout. Closing the socket
+    handle at the WinSock level does: the blocked read fails at once. The
+    letter of WinSock calls closing a handle in use from another thread
+    undefined, but it is the only way found to keep the one-second stop
+    promise on Windows, and the response is being abandoned either way;
+    Python's own `socket.close()` refuses while a thread is blocked in I/O,
+    so the handle is closed directly.
+    """
     if sys.platform != "win32":
         return
     with contextlib.suppress(OSError, AttributeError):
         import ctypes
 
-        cancel = ctypes.windll.kernel32.CancelIoEx
+        ws2_32 = ctypes.windll.ws2_32
+        handle = ctypes.c_void_p(sock.fileno())  # a socket's fileno() IS its handle
+        cancel = ws2_32.CancelIoEx
         cancel.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         cancel.restype = ctypes.c_int
-        # A socket's fileno() IS the Windows SOCKET/HANDLE value.
-        cancel(ctypes.c_void_p(sock.fileno()), None)
+        cancel(handle, None)
+        closesocket = ws2_32.closesocket
+        closesocket.argtypes = [ctypes.c_void_p]
+        closesocket.restype = ctypes.c_int
+        closesocket(handle)
 
 
 class SeverableResponses:

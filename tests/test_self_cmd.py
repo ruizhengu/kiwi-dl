@@ -99,7 +99,9 @@ def test_a_source_checkout_is_told_to_use_git_instead(monkeypatch, calls):
     _as(monkeypatch, Install("editable", "/src/kiwi-dl", Path("/p")))
     result = CliRunner().invoke(cli, ["update"])
     assert calls == []
-    assert "git pull" in result.output
+    # Whitespace-normalized: the console wraps the hint at its width, which
+    # can split "git pull" across lines.
+    assert "git pull" in " ".join(result.output.split())
 
 
 def test_a_brew_install_is_told_to_use_brew_instead(monkeypatch, calls):

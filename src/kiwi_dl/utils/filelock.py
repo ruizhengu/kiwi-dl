@@ -113,8 +113,15 @@ class FileLock:
             # A lock without its marker still locks; it is only never removed.
             # Another process can lock and release this file before the stamp
             # lands; it then leaves the file behind, which is untidy but safe.
-            with contextlib.suppress(OSError):
-                os.write(fd, LOCK_FILE_MARKER)
+            # Under Windows churn (rivals creating and deleting the name
+            # around ours) a write can also fail transiently, so it is
+            # retried before giving up and leaving the sidecar unstamped.
+            for _ in range(3):
+                try:
+                    os.write(fd, LOCK_FILE_MARKER)
+                    break
+                except OSError:
+                    time.sleep(0.01)
             return fd
 
     def _lock(self, fd: int, deadline: float, timeout: float) -> None:
@@ -196,7 +203,7 @@ class FileLock:
     def _unlink_marked(self, identity: tuple[int, int]) -> None:
         """Delete `self.path` when it is still the marked file we held."""
         try:
-            fd = os.open(self.path, os.O_RDWR)
+            fd = os.open(self.path, os.O_RDWR | _BINARY)
         except OSError:
             return
         try:
