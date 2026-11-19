@@ -16,9 +16,12 @@
 - A stop now also severs the API session's in-flight requests, on every
   platform: Ctrl-C during a CDN-URL refresh used to wait out the API timeout
   before the resume snapshot was saved. The speed limiter gives up its wait
-  when stopped, and the quota wait ticks every second instead of two. On
-  Windows the severed read is cancelled outright - a socket shutdown alone
-  does not wake a read blocked in another thread there.
+  when stopped, and the quota wait ticks every second instead of two. And the
+  body of a chunk is read in slices with the stop checked between them: on
+  Windows nothing wakes a socket read blocked in another thread (a shutdown,
+  `CancelIoEx` and a raw handle close were all measured failing), so the read
+  never blocks longer than a quarter-second - a stalled connection still
+  gives up after the same total wait as before.
 - `kiwi-dl remove --purge` closes its own log handlers before deleting, so the
   Logs folder goes too (on Windows the open file would have kept it there).
   And because Windows cannot delete a running program's directory, a failed

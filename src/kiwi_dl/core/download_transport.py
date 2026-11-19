@@ -20,9 +20,11 @@ cancellation, and no proxy is blamed for it.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 import requests
+from urllib3.exceptions import ProtocolError, ReadTimeoutError
 
 from ..proxy.quota_router import Route, RouteAgain, proxy_fingerprint
 from .chunks import Chunk, chunk_mac
@@ -33,6 +35,8 @@ from .state import TransferState, save_state, snapshot_state
 
 log = logging.getLogger(__name__)
 
+# urllib3 is requests' transport: the raw reads below surface its exceptions
+# and are mapped into the requests shapes the rest of this module handles.
 
 # HTTP status codes that indicate the CDN URL has expired or is unusable
 # and should be re-fetched rather than retried as-is. 509 used to be here: it is
@@ -41,6 +45,9 @@ URL_EXPIRY_STATUS = {403, 410}
 
 # MEGA's storage answer when the exit IP's transfer quota is spent.
 QUOTA_EXCEEDED_STATUS = 509
+
+READ_BLOCK = 65536  # bytes per body block, as `iter_content(65536)` read them
+READ_SLICE = 0.25  # seconds one `recv` may sit silent before the stop is re-checked
 
 
 def quota_time_left(headers) -> int | None:
@@ -57,6 +64,54 @@ def _proxy_fault(dl, route: Route, *, ban: bool, why: str) -> None:
     """Bench the proxy this attempt went through and retry on a new route."""
     dl._router.proxy_failed(route, ban=ban, why=why)
     raise RouteAgain(why)
+
+
+def _read_body(resp, dl, read_timeout: float):
+    """The body, one block at a time, with the stop checked between slices.
+
+    A socket read blocked in one thread cannot be woken from another on
+    Windows - not by a shutdown, not by `CancelIoEx`, not by closing the
+    handle (each measured in CI; see `inflight.sever`, which still helps
+    where it can) - so instead of one long blocking read, the socket's
+    silence timeout is dropped to READ_SLICE and the body is pulled slice
+    by slice. A healthy stream is unaffected: a `recv` returns as soon as
+    bytes arrive, and the timeout only bounds silence. A stop is therefore
+    noticed within one slice on every platform, and a stalled connection
+    still gives up after the same total silence as before.
+    """
+    raw = getattr(resp, "raw", None)
+    raw_read = getattr(raw, "read", None)
+    if raw_read is None:  # a fake response (tests) that only models iter_content
+        yield from resp.iter_content(READ_BLOCK)
+        return
+    sock = getattr(getattr(raw, "connection", None), "sock", None)
+    original = sock.gettimeout() if sock is not None else None
+    if sock is not None:
+        with contextlib.suppress(OSError):
+            sock.settimeout(READ_SLICE)
+    stalled = 0.0
+    try:
+        while True:
+            if dl._stop_event.is_set():
+                return
+            try:
+                block = raw_read(READ_BLOCK, decode_content=True)
+            except ReadTimeoutError as exc:
+                stalled += READ_SLICE
+                if stalled >= read_timeout:
+                    raise requests.exceptions.ConnectionError(exc) from exc
+                continue
+            except ProtocolError as exc:
+                # What `iter_content` would have raised for the same fault.
+                raise requests.exceptions.ChunkedEncodingError(exc) from exc
+            stalled = 0.0
+            if not block:
+                return
+            yield block
+    finally:
+        if sock is not None and original is not None:
+            with contextlib.suppress(OSError):
+                sock.settimeout(original)
 
 
 def fetch_chunk(
@@ -83,11 +138,13 @@ def fetch_chunk(
     route = dl._router.route()
     proxied = route.proxy is not None
     encrypted = bytearray()
+    timeout = dl.smart_proxy.proxy_timeout(dl.timeout) if proxied else dl.timeout
+    read_timeout = timeout[1] if isinstance(timeout, tuple) else timeout
     try:
         with dl._inflight.get(
             cdn_url,
             headers=headers,
-            timeout=dl.smart_proxy.proxy_timeout(dl.timeout) if proxied else dl.timeout,
+            timeout=timeout,
             stream=True,
             proxies=route.proxies,
         ) as resp:
@@ -159,7 +216,7 @@ def fetch_chunk(
             # the server sends one, so a 206 with a plausible Content-Range
             # and chunked transfer-encoding streamed into this bytearray
             # without any ceiling at all.
-            for block in resp.iter_content(chunk_size=65536):
+            for block in _read_body(resp, dl, read_timeout):
                 if dl._stop_event.is_set():
                     return
                 if len(encrypted) + len(block) > chunk.size:

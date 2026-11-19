@@ -110,19 +110,39 @@ class FileLock:
                     return os.open(path, os.O_RDWR | _BINARY)
                 except FileNotFoundError:
                     continue  # removed between the two opens: create it
-            # A lock without its marker still locks; it is only never removed.
-            # Another process can lock and release this file before the stamp
-            # lands; it then leaves the file behind, which is untidy but safe.
-            # Under Windows churn (rivals creating and deleting the name
-            # around ours) a write can also fail transiently, so it is
-            # retried before giving up and leaving the sidecar unstamped.
-            for _ in range(3):
-                try:
-                    os.write(fd, LOCK_FILE_MARKER)
-                    break
-                except OSError:
-                    time.sleep(0.01)
+            self._stamp(fd, path)
             return fd
+
+    def _stamp(self, fd: int, path: str) -> None:
+        """Write the marker onto a lock file this call just created, and prove
+        it landed.
+
+        The stamp is what makes later removal safe, so "the write may have
+        failed" is not good enough to leave behind: under Windows churn a
+        write can fail or land unseen while rivals create and delete the name
+        around ours, and a sidecar without its marker can never be cleaned
+        up. The fd is read back after writing; if the marker is not there
+        after a bounded number of rounds, the fresh file is this process's
+        own and is removed before raising - the caller's claim moves to the
+        next candidate name.
+        """
+        try:
+            for _ in range(5):
+                with contextlib.suppress(OSError):
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    os.write(fd, LOCK_FILE_MARKER)
+                os.lseek(fd, 0, os.SEEK_SET)
+                if os.read(fd, len(LOCK_FILE_MARKER) + 1) == LOCK_FILE_MARKER:
+                    os.lseek(fd, 0, os.SEEK_SET)  # the lock below starts at byte 0
+                    return
+                time.sleep(0.05)
+        except BaseException:
+            os.close(fd)
+            raise
+        os.close(fd)
+        with contextlib.suppress(OSError):
+            os.unlink(path)  # ours, freshly created, unstamped: do not leave it
+        raise OSError(f"could not stamp the lock file {path}; the claim moves on")
 
     def _lock(self, fd: int, deadline: float, timeout: float) -> None:
         while True:
