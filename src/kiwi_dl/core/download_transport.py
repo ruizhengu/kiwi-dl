@@ -24,7 +24,7 @@ import contextlib
 import logging
 
 import requests
-from urllib3.exceptions import ProtocolError, ReadTimeoutError
+from urllib3.exceptions import ProtocolError, ReadTimeoutError  # requests' transport
 
 from ..proxy.quota_router import Route, RouteAgain, proxy_fingerprint
 from .chunks import Chunk, chunk_mac
@@ -34,9 +34,6 @@ from .range_validation import RangeNotHonoredError, validate_range_response
 from .state import TransferState, save_state, snapshot_state
 
 log = logging.getLogger(__name__)
-
-# urllib3 is requests' transport: the raw reads below surface its exceptions
-# and are mapped into the requests shapes the rest of this module handles.
 
 # HTTP status codes that indicate the CDN URL has expired or is unusable
 # and should be re-fetched rather than retried as-is. 509 used to be here: it is
@@ -109,7 +106,7 @@ def _read_body(resp, dl, read_timeout: float):
                 return
             yield block
     finally:
-        if sock is not None and original is not None:
+        if sock is not None:
             with contextlib.suppress(OSError):
                 sock.settimeout(original)
 
