@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import contextlib
 import socket
-import sys
 import threading
 from collections.abc import Iterator
 from typing import Any
@@ -47,9 +46,12 @@ def sever(response: Any) -> None:
 
     The socket is urllib3's connection's. It is gone (None) once the response
     has been read to the end and released, and then nothing is waiting on it.
-    On Windows a shutdown alone does not wake a read blocked in another
-    thread - measured in CI, it sat out its read timeout - so the socket's
-    pending I/O is cancelled as well.
+
+    On Windows a shutdown does NOT wake a read blocked in another thread -
+    measured in CI, where a shutdown, `CancelIoEx` and a raw handle close all
+    left the read sitting out its timeout - so the prompt stop there comes
+    from the sliced body reads in `download_transport`, and this shutdown
+    merely marks the socket so the worker's next look ends the transfer.
     """
     connection = getattr(getattr(response, "raw", None), "connection", None)
     sock = getattr(connection, "sock", None)
@@ -57,38 +59,6 @@ def sever(response: Any) -> None:
         # Already closed by the worker leaving its `with`: nothing to wake.
         with contextlib.suppress(OSError):
             sock.shutdown(socket.SHUT_RDWR)
-        if sys.platform == "win32":
-            _cancel_socket_io(sock)
-
-
-def _cancel_socket_io(sock: Any) -> None:
-    """Windows: end a `recv` another thread is blocked in.
-
-    Measured in CI: neither `shutdown()` (which `sever` does first on every
-    platform) nor `CancelIoEx` wakes a blocking WinSock `recv` issued by
-    another thread - the read sat out its whole timeout. Closing the socket
-    handle at the WinSock level does: the blocked read fails at once. The
-    letter of WinSock calls closing a handle in use from another thread
-    undefined, but it is the only way found to keep the one-second stop
-    promise on Windows, and the response is being abandoned either way;
-    Python's own `socket.close()` refuses while a thread is blocked in I/O,
-    so the handle is closed directly.
-    """
-    if sys.platform != "win32":
-        return
-    with contextlib.suppress(OSError, AttributeError):
-        import ctypes
-
-        ws2_32 = ctypes.windll.ws2_32
-        handle = ctypes.c_void_p(sock.fileno())  # a socket's fileno() IS its handle
-        cancel = ws2_32.CancelIoEx
-        cancel.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-        cancel.restype = ctypes.c_int
-        cancel(handle, None)
-        closesocket = ws2_32.closesocket
-        closesocket.argtypes = [ctypes.c_void_p]
-        closesocket.restype = ctypes.c_int
-        closesocket(handle)
 
 
 class SeverableResponses:

@@ -36,10 +36,8 @@ def short_path(path: Path | str) -> str:
     # POSIX paths arrive with "/", Windows ones with "\\" (or a display-only
     # as_posix form); both abbreviate from the home prefix, and the rest is
     # shown with forward slashes, like every other path kiwi-dl prints.
-    for separator in (os.sep, "/"):
-        prefix = home + separator
-        if text.startswith(prefix):
-            return "~/" + text[len(home) + len(separator) :].replace("\\", "/")
+    if text.startswith(home + "/") or text.startswith(home + os.sep):
+        return "~/" + text[len(home) + 1 :].replace("\\", "/")
     return text
 
 

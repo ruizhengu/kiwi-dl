@@ -2,7 +2,8 @@
 
 The lock serializes users across processes AND across handles in one
 process: `fcntl.flock` on macOS and Linux, a `msvcrt.locking` byte-range
-lock on Windows (one byte at offset 0, which is all a sidecar needs).
+lock on Windows (one byte just past the marker - see `_LOCK_OFFSET` - since
+Windows locks are mandatory and must never block the stamp below).
 Acquisition is bounded by a timeout and never silently skipped.
 
 A lock file may be removed, but only by its holder and only while it still
@@ -23,8 +24,10 @@ on a file whose name has since moved is dropped, never trusted.
 Only a file this module created is ever removed. A lock path can collide with
 a real file (a folder share may hold both `a.bin` and `a.bin.mbclaim`), so a
 lock file is created exclusively and stamped with `LOCK_FILE_MARKER`, and
-removal requires the marker. An existing file is opened as it is and never
-written to.
+removal requires the marker - which is why the stamp is verified before the
+descriptor is handed out (`_stamp`): a fresh file that cannot be stamped is
+removed again and the acquisition fails, never left behind unstamped. An
+existing file is opened as it is and never written to.
 """
 
 from __future__ import annotations
