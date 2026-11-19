@@ -6,6 +6,7 @@ kind is read from a temporary prefix the test lays out.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -217,6 +218,14 @@ def test_completion_prints_a_script_for_each_shell(shell, marker):
 def test_completion_defaults_to_the_login_shell(monkeypatch):
     monkeypatch.setenv("SHELL", "/bin/zsh")
     assert "#compdef kiwi-dl" in CliRunner().invoke(cli, ["completion"]).output
+
+
+def test_completion_on_windows_without_a_shell_errors_instead_of_printing_zsh(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("SHELL", raising=False)
+    result = CliRunner().invoke(cli, ["completion"])
+    assert result.exit_code == 2, result.output
+    assert "pass one" in result.output
 
 
 def test_completion_actually_completes_subcommands(monkeypatch):

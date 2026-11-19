@@ -1,17 +1,16 @@
 """An arrow-key menu for the terminal: ↑/↓ or j/k to move, Enter to choose.
 
-POSIX only (termios), like the rest of kiwi-dl. Reading keys and drawing the
-list are separate so each can be tested without a terminal: `select()` takes
-any `read_key` callable, and `render()` is a pure function of the state.
+Reading keys and drawing the list are separate so each can be tested without
+a terminal: `select()` takes any `read_key` callable, and `render()` is a
+pure function of the state. Keys come from termios on macOS and Linux, from
+`msvcrt` on Windows; the drawing is the same ANSI on both.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
-import select as _select
 import sys
-import termios
-import tty
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -20,6 +19,11 @@ from rich.console import Console
 from rich.text import Text
 
 from .theme import SYMBOL
+
+if sys.platform != "win32":
+    import select as _select
+    import termios
+    import tty
 
 UP, DOWN, ENTER, QUIT, HOME, END = "up", "down", "enter", "quit", "home", "end"
 
@@ -68,6 +72,29 @@ def _normalize(raw: bytes) -> str:
     return raw.decode("utf-8", "replace")
 
 
+def _normalize_windows(raw: str) -> str:
+    """One Windows console keypress, as `read_key` returns it, to a key name.
+
+    `getwch` reports extended keys (arrows, Home, End) as a prefix-plus-code
+    pair the reader has already joined; a lone prefix never reaches here.
+    """
+    if raw == "\r":
+        return ENTER
+    if raw in ("\x00H", "\xe0H", "k"):
+        return UP
+    if raw in ("\x00P", "\xe0P", "j"):
+        return DOWN
+    if raw in ("\x00G", "\xe0G", "g"):
+        return HOME
+    if raw in ("\x00O", "\xe0O", "G"):
+        return END
+    # `\x03` is only seen when processed input is off; normally the console
+    # turns Ctrl-C into KeyboardInterrupt, which `select` treats as backing out.
+    if raw in ("q", "Q", "\x1b", "\x03"):
+        return QUIT
+    return raw
+
+
 @contextmanager
 def _cbreak(fd: int) -> Iterator[None]:
     """Keys arrive one at a time, unechoed; the terminal is restored however we leave."""
@@ -81,6 +108,10 @@ def _cbreak(fd: int) -> Iterator[None]:
 
 def read_terminal_key(fd: int | None = None) -> str:
     """Read one keypress from the terminal, folding escape sequences into one key."""
+    if sys.platform == "win32":
+        import msvcrt
+
+        return _read_terminal_key_windows(msvcrt.getwch)
     fd = sys.stdin.fileno() if fd is None else fd
     with _cbreak(fd):
         raw = os.read(fd, 1)
@@ -91,6 +122,39 @@ def read_terminal_key(fd: int | None = None) -> str:
                 if raw[-1:].isalpha() or raw[-1:] == b"~":
                     break
     return _normalize(raw)
+
+
+def _read_terminal_key_windows(read_char: Callable[[], str]) -> str:
+    """One keypress from the Windows console, folded into one key name.
+
+    `getwch` needs no mode switch - it is already unechoed and unbuffered -
+    and reports an extended key as two calls, prefix first.
+    """
+    first = read_char()
+    if first in ("\x00", "\xe0"):
+        return _normalize_windows(first + read_char())
+    return _normalize_windows(first)
+
+
+def _enable_windows_ansi() -> None:
+    """Ask the Windows console to interpret the ANSI cursor codes the menu
+    draws with.
+
+    Best effort by design: Windows Terminal already accepts them, a console
+    that refuses (or output that is not a console at all) just gets literal
+    escape bytes, and nothing here is worth crashing the menu over.
+    """
+    if sys.platform != "win32":
+        return
+    with contextlib.suppress(Exception):
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            # 0x0004 = ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)
 
 
 def select(
@@ -106,6 +170,7 @@ def select(
     """
     index = max(0, min(start, len(choices) - 1))
     lines = len(choices) + 2  # the choices, a blank line, the hint
+    _enable_windows_ansi()
 
     def draw() -> None:
         # The redraw climbs back exactly `lines` lines, so no line may wrap.

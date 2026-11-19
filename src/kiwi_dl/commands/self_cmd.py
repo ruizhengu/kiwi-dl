@@ -251,7 +251,15 @@ def completion_cmd(ctx: click.Context, shell: str | None) -> None:
     """Print the completion script for SHELL (default: your login shell)."""
     from click.shell_completion import get_completion_class
 
-    shell = shell or Path(os.environ.get("SHELL", "zsh")).name
+    # A login-shell default only makes sense where SHELL exists; a Windows
+    # console has none, so there the user must pass a supported shell.
+    default = "" if sys.platform == "win32" else "zsh"
+    shell = shell or (os.environ.get("SHELL") and Path(os.environ["SHELL"]).name) or default
+    if not shell:
+        print_error(
+            "Completions support zsh, bash and fish; pass one, e.g. `kiwi-dl completion zsh`."
+        )
+        ctx.exit(2)
     completion_class = get_completion_class(shell)
     if completion_class is None or shell not in _SETUP:
         print_error(f"No completion for {shell!r}; choose one of: {', '.join(sorted(_SETUP))}.")
