@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Homebrew install
+
+- New install path: `brew install ruizhengu/tap/kiwi-dl`, from the
+  [homebrew-tap](https://github.com/ruizhengu/homebrew-tap). Upgrade and removal
+  then go through brew: `brew upgrade kiwi-dl`, `brew uninstall kiwi-dl`.
+- `kiwi-dl update` and `kiwi-dl remove` detect a Homebrew install by its
+  `INSTALL_RECEIPT.json` and point at the brew commands instead of touching the
+  keg. The uv, pipx and pip paths behave exactly as before.
+- A release workflow builds an sdist for each tag, proves it installs in a
+  clean venv, and attaches it to the GitHub release. That tarball is what the
+  brew formula pins, so its bytes stay stable.
+
 ## 0.1.0 - 2026-11-04
 
 The first release of kiwi-dl: a macOS and Linux command line tool that downloads

@@ -54,6 +54,17 @@ its tag:
 curl -fsSL https://raw.githubusercontent.com/ruizhengu/kiwi-dl/main/install.sh | bash -s -- v0.1.0
 ```
 
+With Homebrew, the tap installs it instead:
+
+```bash
+brew install ruizhengu/tap/kiwi-dl
+```
+
+Homebrew then owns the install: upgrade and remove it with `brew upgrade
+kiwi-dl` and `brew uninstall kiwi-dl`. `kiwi-dl update` and `kiwi-dl remove`
+know this and point at the brew commands; they only manage the uv and pipx
+installs.
+
 ## Safety
 
 - **No account.** kiwi-dl downloads public links and never asks for or uses a
