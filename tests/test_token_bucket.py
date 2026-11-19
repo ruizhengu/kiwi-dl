@@ -115,6 +115,41 @@ def test_zero_and_negative_amounts_are_safe() -> None:
     assert clock.time() == 0.0
 
 
+def test_a_set_stop_returns_at_once_mid_drain() -> None:
+    """A stop must not wait out a slow drain: consume returns for the caller's
+    own stop check to give the chunk up."""
+    clock = FakeClock()
+    bucket = TokenBucket(rate=1024, clock=clock.time, sleeper=clock.sleep)
+    stop = threading.Event()
+    stop.set()
+    started = time.monotonic()
+    bucket.consume(10 * 1024 * 1024, stop=stop)
+    assert time.monotonic() - started < 1.0
+    assert clock.time() == 0.0, "a sleep was waited out despite the stop"
+
+
+def test_a_stop_set_during_a_sleep_ends_the_drain_after_it() -> None:
+    clock = FakeClock()
+    bucket = TokenBucket(rate=1024, clock=clock.time, sleeper=clock.sleep)
+    stop = threading.Event()
+
+    def stop_during_sleep(seconds: float) -> None:
+        clock.sleep(seconds)
+        stop.set()
+
+    bucket._sleep = stop_during_sleep
+    _run_with_timeout(lambda: bucket.consume(64 * 1024, stop=stop))
+    # One sleep happened; the loop then saw the stop instead of draining on
+    # for the ~60 s the rest of a 64 KiB block at 1 KiB/s would take.
+    assert clock.time() <= 1.0
+
+
+def test_noop_limiter_takes_the_stop_keyword_too() -> None:
+    stop = threading.Event()
+    NoOpLimiter().consume(10**9, stop=stop)
+    make_limiter(0).consume(10**9, stop=stop)
+
+
 def test_set_rate_mid_consume_is_safe() -> None:
     clock = FakeClock()
     bucket = TokenBucket(rate=1024, burst=512, clock=clock.time, sleeper=clock.sleep)

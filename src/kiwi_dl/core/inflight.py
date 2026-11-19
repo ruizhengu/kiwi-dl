@@ -55,6 +55,34 @@ def sever(response: Any) -> None:
             sock.shutdown(socket.SHUT_RDWR)
 
 
+class SeverableResponses:
+    """Responses currently in flight, so a stop can end a blocked read in them.
+
+    The chunk requests get the full `InFlightRequests` treatment. The API
+    session's calls are fewer and shorter, but a blocked read there ends only
+    when its socket gives way - without severance, a stop would sit out the
+    API timeout (up to a minute) before anything else noticed.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._open: set[Any] = set()
+
+    def add(self, response: Any) -> None:
+        with self._lock:
+            self._open.add(response)
+
+    def discard(self, response: Any) -> None:
+        with self._lock:
+            self._open.discard(response)
+
+    def sever_all(self) -> None:
+        with self._lock:
+            responses = list(self._open)
+        for response in responses:
+            sever(response)
+
+
 class InFlightRequests:
     """One download's chunk requests, for `cut_off` to end when it stops."""
 

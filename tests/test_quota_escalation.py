@@ -168,7 +168,7 @@ def test_a_route_change_ends_the_wait_early(slept, monkeypatch):
 
     assert dl._get_with_quota_wait(_fails_then_ok(1, calls)) == "ok"
     assert len(calls) == 2
-    assert sum(slept) == pytest.approx(4), "two 2s ticks, not the full hour"
+    assert sum(slept) == pytest.approx(2), "two 1s ticks, not the full hour"
 
 
 def test_an_unreadable_route_is_not_a_route_change(slept, monkeypatch):

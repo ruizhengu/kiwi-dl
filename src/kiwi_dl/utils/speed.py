@@ -88,12 +88,19 @@ class TokenBucket:
             # Never leave more tokens than the bucket can hold.
             self._tokens = min(self._tokens, self.burst)
 
-    def consume(self, amount: int) -> None:
-        """Block until `amount` tokens (bytes) have been drained."""
+    def consume(self, amount: int, stop: threading.Event | None = None) -> None:
+        """Block until `amount` tokens (bytes) have been drained, returning at
+        once when `stop` is set.
+
+        A stopped return leaves the caller's own stop check to give the chunk
+        up, so a stop never waits out a slow drain.
+        """
         remaining = float(amount or 0)
         if remaining <= 0:
             return
         while True:
+            if stop is not None and stop.is_set():
+                return
             with self._lock:
                 if self.rate <= 0:
                     return  # Unlimited (covers rates changed at runtime too)
@@ -122,7 +129,7 @@ def make_limiter(kbps: float) -> TokenBucket | NoOpLimiter:
 class NoOpLimiter:
     """No-op limiter when rate limiting is disabled."""
 
-    def consume(self, amount: int) -> None:
+    def consume(self, amount: int, stop: threading.Event | None = None) -> None:
         pass
 
     def set_rate(self, rate: float) -> None:

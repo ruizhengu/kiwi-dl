@@ -46,6 +46,7 @@ from ..proxy.quota_router import ChunkRouter, Route, RouteAgain, SmartProxyPolic
 from ..proxy.selector import ProxySelector
 from ..utils.helpers import available_disk_space, claim_destination, release_destination
 from ..utils.speed import RollingSpeedMeter, make_limiter
+from .api import sever_inflight_api
 from .chunks import Chunk, iter_chunks
 from .download_source import ResolvedSource, resolve_download_source
 from .download_transport import URL_EXPIRY_STATUS, CdnUrlExpired, fetch_chunk
@@ -317,6 +318,10 @@ class MegaDownloader:
             live = list(_live_downloaders)
         for downloader in live:
             downloader.stop()
+        # API calls are shared, not per-download: a worker refreshing a CDN
+        # URL, or a folder walk listing its files, sits in a blocked read on
+        # the session that only severing ends.
+        sever_inflight_api()
 
     # ------------------------------------------------------------------
     # Quota recovery
@@ -391,15 +396,15 @@ class MegaDownloader:
         Returns True when it woke because the local route changed.
 
         The route is re-read on the tick the stop event already needs, so
-        detection costs one local syscall every two seconds and no extra
-        wakeups. A probe that fails mid-wait returns None and is NOT treated as
-        a change; no baseline at all disables detection entirely.
+        detection costs one local syscall every second and no extra wakeups. A
+        probe that fails mid-wait returns None and is NOT treated as a change;
+        no baseline at all disables detection entirely.
         """
         route = _local_route_fingerprint()
         slept = 0
         while slept < wait and not self._stop_event.is_set():
-            time.sleep(min(2.0, wait - slept))
-            slept += 2
+            time.sleep(min(1.0, wait - slept))
+            slept += 1
             if route is not None and _local_route_fingerprint() not in (None, route):
                 log.info("Local route changed during the quota wait; retrying now")
                 return True

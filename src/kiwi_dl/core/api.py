@@ -26,6 +26,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 from ..proxy.selector import ProxySelector
 from .bounded_read import PayloadTooLargeError, read_bounded_text
 from .errors import MegaError, RateLimitError, raise_for_code
+from .inflight import SeverableResponses
 from .responses import _expect_mapping
 
 # --- Retry policy -----------------------------------------------------------
@@ -186,6 +187,21 @@ def default_user_agent() -> str:
     from .. import __version__
 
     return f"kiwi-dl/{__version__}"
+
+
+# One registry for every API session in the process: a stop severs the
+# responses still being read, whatever download or command they belong to.
+_inflight_api = SeverableResponses()
+
+
+def sever_inflight_api() -> None:
+    """Shut down the socket of every API request still being read.
+
+    A stop must not wait out the API timeout: a worker refreshing a CDN URL
+    sits in a blocked read that only severing ends - the same primitive the
+    chunk-request cut-off uses. Safe to call when nothing is in flight.
+    """
+    _inflight_api.sever_all()
 
 
 class MegaAPIClient:
@@ -383,10 +399,12 @@ class MegaAPIClient:
                     proxies=request_proxies,
                     stream=True,
                 )
+                _inflight_api.add(response)
                 if response.status_code == 402 and "X-Hashcash" in response.headers:
                     from .hashcash import build_solution_header
 
                     challenge = response.headers["X-Hashcash"]
+                    _inflight_api.discard(response)
                     response.close()  # nothing in this body is read; free the connection
                     remaining = hashcash_deadline - time.monotonic()
                     if remaining <= 0:
@@ -434,6 +452,7 @@ class MegaAPIClient:
         finally:
             with contextlib.suppress(Exception):
                 response.close()
+            _inflight_api.discard(response)
         self._selector.report_success(picked_proxy)
 
         log.debug("MEGA API response: %s", data)

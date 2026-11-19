@@ -23,7 +23,7 @@ import requests
 
 from kiwi_dl.core.downloader import MegaDownloader
 from kiwi_dl.core.errors import TransferCancelled
-from kiwi_dl.core.inflight import InFlightRequests
+from kiwi_dl.core.inflight import InFlightRequests, SeverableResponses
 from kiwi_dl.core.state import load_state
 from kiwi_dl.proxy.quota_router import SmartProxyPolicy
 from kiwi_dl.proxy.smart_proxy import SmartProxyPool
@@ -253,3 +253,46 @@ def test_a_real_request_with_no_answer_yet_is_let_go_at_once(stalling, via_proxy
 
     assert time.monotonic() - stopped_at < PROMPT
     assert outcome == {"resp": None}
+
+
+# ---------------------------------------------------------------------------
+# The API-session registry: same severance, for the calls chunk requests
+# don't go through (URL refreshes, folder walks)
+# ---------------------------------------------------------------------------
+
+
+def test_severing_the_api_registry_ends_a_blocked_body_read(stalling):
+    server = stalling(headers=True)
+    url = f"http://127.0.0.1:{server.port}/dl/x"
+    inflight_api = SeverableResponses()
+    reading = threading.Event()
+    outcome: dict = {}
+
+    def worker():
+        try:
+            with requests.get(url, stream=True, timeout=(5, 15)) as resp:
+                inflight_api.add(resp)
+                try:
+                    for _block in resp.iter_content(64 * KiB):
+                        reading.set()
+                finally:
+                    inflight_api.discard(resp)
+        except requests.RequestException as exc:
+            outcome["exc"] = exc
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    assert reading.wait(5)
+    time.sleep(0.1)  # into the read for the second block, which never comes
+
+    stopped_at = time.monotonic()
+    inflight_api.sever_all()
+    thread.join(5)
+
+    assert time.monotonic() - stopped_at < PROMPT
+    assert isinstance(outcome.get("exc"), requests.exceptions.ChunkedEncodingError)
+
+
+def test_an_empty_api_registry_severs_nothing():
+    """`stop_all` calls this unconditionally; an idle process must not care."""
+    SeverableResponses().sever_all()

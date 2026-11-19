@@ -172,7 +172,7 @@ def fetch_chunk(
                         )
                     )
                 encrypted.extend(block)
-                dl.limiter.consume(len(block))
+                dl.limiter.consume(len(block), stop=dl._stop_event)
     except (
         requests.ConnectionError,
         requests.Timeout,
