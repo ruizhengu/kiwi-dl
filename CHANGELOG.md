@@ -21,7 +21,8 @@
   Windows nothing wakes a socket read blocked in another thread (a shutdown,
   `CancelIoEx` and a raw handle close were all measured failing), so the read
   never blocks longer than a quarter-second - a stalled connection still
-  gives up after the same total wait as before.
+  gives up after the same total wait as before. The integrity check's
+  short-read failure now also reports the file's size on disk.
 - `kiwi-dl remove --purge` closes its own log handlers before deleting, so the
   Logs folder goes too (on Windows the open file would have kept it there).
   And because Windows cannot delete a running program's directory, a failed
