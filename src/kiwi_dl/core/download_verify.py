@@ -16,6 +16,7 @@ None of these touch the network, the thread pool, or the destination claim.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from .chunks import (
@@ -150,10 +151,13 @@ def _verify_file_on_disk(
                 data = f.read(c.size)
                 if len(data) != c.size:
                     log.error(
-                        "Integrity check: chunk %d reads %d bytes from disk, expected %d",
+                        "Integrity check: chunk %d reads %d bytes from disk, expected %d "
+                        "(file size on disk: %d, transfer total: %d)",
                         c.index,
                         len(data),
                         c.size,
+                        os.fstat(f.fileno()).st_size,
+                        all_chunks[-1].offset + all_chunks[-1].size,
                     )
                     return False
                 macs.append(chunk_mac(data, aes_key, nonce))
