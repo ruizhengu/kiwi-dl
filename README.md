@@ -1,11 +1,11 @@
 <div align="center">
   <img src="assets/icon.svg" alt="kiwi-dl icon: a kiwi fruit slice with a red M at its core" width="112">
   <h1>kiwi-dl</h1>
-  <p><b>Download MEGA links from your Mac or Linux terminal: resumable, verified, quota-aware.</b></p>
+  <p><b>Download MEGA links from your Mac, Windows or Linux terminal: resumable, verified, quota-aware.</b></p>
   <p>
     <a href="https://github.com/ruizhengu/kiwi-dl/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/ruizhengu/kiwi-dl/tests.yml?branch=main&label=tests&style=flat-square" alt="Tests"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license"></a>
-    <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=flat-square" alt="macOS and Linux">
+    <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="macOS, Windows and Linux">
     <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square" alt="Python 3.10+">
   </p>
   <img src="assets/demo.svg" alt="kiwi-dl downloading a MEGA folder: a header, one row per file, and a summary" width="760">
@@ -42,10 +42,11 @@ kiwi-dl                                  # the menu
 kdl 'https://mega.nz/file/ID#KEY'        # or download straight away
 ```
 
-kiwi-dl runs on macOS (Apple Silicon or Intel) and Linux. The installer sets it
-up as an isolated tool with [uv](https://docs.astral.sh/uv/), or pipx if you
-have that instead, and tells you how to get uv if you have neither. To do it by
-hand: `uv tool install git+https://github.com/ruizhengu/kiwi-dl`.
+kiwi-dl runs on macOS (Apple Silicon or Intel), Windows and Linux. On macOS and
+Linux, the installer sets it up as an isolated tool with
+[uv](https://docs.astral.sh/uv/), or pipx if you have that instead, and tells
+you how to get uv if you have neither. To do it by hand:
+`uv tool install git+https://github.com/ruizhengu/kiwi-dl`.
 
 The installer follows the `main` branch. To install a release instead, pass
 its tag:
@@ -64,6 +65,16 @@ Homebrew then owns the install: upgrade and remove it with `brew upgrade
 kiwi-dl` and `brew uninstall kiwi-dl`. `kiwi-dl update` and `kiwi-dl remove`
 know this and point at the brew commands; they only manage the uv and pipx
 installs.
+
+On Windows, PowerShell installs it instead:
+
+```powershell
+irm https://raw.githubusercontent.com/ruizhengu/kiwi-dl/main/install.ps1 | iex
+```
+
+Set `KIWI_DL_REF` to pin a release. Like the bash installer, it needs
+[uv](https://docs.astral.sh/uv/) (or pipx) and prints how to get it if neither
+is there.
 
 ## Safety
 
@@ -218,7 +229,9 @@ kiwi-dl config path
 On macOS, settings and the proxy pool live in `~/Library/Application Support/kiwi-dl`
 and the log in `~/Library/Logs/kiwi-dl`. On Linux they live in `~/.config/kiwi-dl`,
 `~/.local/share/kiwi-dl` and `~/.local/state/kiwi-dl` (or your `XDG_*` folders).
-Set `KIWI_DL_HOME` to keep everything in one folder instead.
+On Windows they live in `%APPDATA%\kiwi-dl`, with the log in
+`%LOCALAPPDATA%\kiwi-dl\logs`. Set `KIWI_DL_HOME` to keep everything in one
+folder instead.
 
 ### Update, remove, completion
 
@@ -249,8 +262,9 @@ uv venv && uv pip install -e ".[dev]"
 ```
 
 The tests talk to a fake MEGA (`tests/fake_mega.py`) that serves really encrypted
-files and answers like the live service, 509s included. CI runs them on macOS
-and Ubuntu with Python 3.10 to 3.14, and installs with `install.sh` on both.
+files and answers like the live service, 509s included. CI runs them on macOS,
+Windows and Ubuntu with Python 3.10 to 3.14, and installs with `install.sh` on
+the Unixes and `install.ps1` on Windows.
 
 ## Credits
 

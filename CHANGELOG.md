@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Windows
+
+- kiwi-dl runs on Windows again, rebuilt for this codebase rather than restored
+  from MegaBasterd-CLI's. A PowerShell installer (`install.ps1`) sets it up
+  with uv or pipx, exactly as `install.sh` does on macOS and Linux. Settings
+  and the proxy pool live in `%APPDATA%\kiwi-dl`, the log in
+  `%LOCALAPPDATA%\kiwi-dl\logs`; `KIWI_DL_HOME` overrides as everywhere else.
+  The arrow-key menu reads keys with `msvcrt`, locks use `msvcrt.locking`, and
+  `kiwi-dl update` and `kiwi-dl remove` manage uv and pipx installs the same
+  as on macOS and Linux. PowerShell completions are not offered yet
+  (`kiwi-dl completion` says so and lists the shells that are).
+- A stop now also severs the API session's in-flight requests, on every
+  platform: Ctrl-C during a CDN-URL refresh used to wait out the API timeout
+  before the resume snapshot was saved. The speed limiter gives up its wait
+  when stopped, and the quota wait ticks every second instead of two.
+- CI runs the suite on Windows (Python 3.10-3.14) and installs with
+  `install.ps1` there, with uv and with pipx.
+
 ### Homebrew install
 
 - New install path: `brew install ruizhengu/tap/kiwi-dl`, from the

@@ -27,6 +27,13 @@ from kiwi_dl.core.errors import TransferCancelled
 from kiwi_dl.core.state import load_state
 from tests.fake_mega import FakeCdn
 
+# os.kill(pid, SIGINT) is TerminateProcess on Windows, not an interrupt. The
+# stop semantics these tests guard are covered cross-platform by
+# `test_stop_cuts_off_requests.py`, which drives `stop()` against real sockets.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="os.kill(pid, SIGINT) kills the process on Windows"
+)
+
 KiB = 1024
 MiB = 1024 * KiB
 
