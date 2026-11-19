@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-11-19
 
 ### Windows
 
@@ -28,6 +28,10 @@
   And because Windows cannot delete a running program's directory, a failed
   `kiwi-dl remove` on Windows says to close the terminal and run the
   uninstall command yourself.
+- Resuming a stopped download no longer re-downloads the whole transfer: the
+  preallocation step used to zero the partial file the resume state vouches
+  for, and only the MAC check's full re-fetch masked it. It now extends the
+  partial file instead, on every platform.
 - CI runs the suite on Windows (Python 3.10-3.14) and installs with
   `install.ps1` there, with uv and with pipx.
 
