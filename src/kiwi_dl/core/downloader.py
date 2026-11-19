@@ -664,8 +664,10 @@ class MegaDownloader:
         # filesystem first: `truncate` to a size that does not fit either fails
         # with a bare ENOSPC deep inside a worker or (on a sparse filesystem)
         # succeeds and fails much later, mid-transfer, with the disk full.
-        if not destination.exists() or destination.stat().st_size != file_size:
-            already = destination.stat().st_size if destination.exists() else 0
+        # `not destination.exists()` is in the condition even when the sizes
+        # agree (a zero-byte download must still be CREATED).
+        already = destination.stat().st_size if destination.exists() else 0
+        if already != file_size or not destination.exists():
             needed = max(0, file_size - already)
             free = available_disk_space(destination.parent)
             if free < needed:
@@ -675,7 +677,12 @@ class MegaDownloader:
                         f"{free} available on {destination.parent}"
                     )
                 )
-            with open(destination, "wb") as f:
+            # Append mode extends a partial file to the final size WITHOUT
+            # destroying the bytes the resume state vouches for - an `wb` open
+            # here zeroed them on every resume and only the MAC-check re-fetch
+            # of the whole transfer ever masked it. A file larger than the
+            # transfer is trimmed to it, keeping the bytes a chunk may skip.
+            with open(destination, "ab") as f:
                 f.truncate(file_size)
 
         pending = [c for c in all_chunks if not state.is_chunk_done(c.index)]
