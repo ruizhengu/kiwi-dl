@@ -157,9 +157,11 @@ def test_kdl_reports_a_quota_stop_with_exit_code_3(monkeypatch, tmp_path):
 
 
 def test_kdl_help_and_version():
+    from kiwi_dl import __version__
     from kiwi_dl.cli import kdl
 
     help_text = CliRunner().invoke(kdl, ["--help"]).output
     assert "Usage: kdl" in help_text and "--output" in help_text
     assert "Not affiliated with Mega Limited" in help_text
-    assert "0.1.0" in CliRunner().invoke(kdl, ["--version"]).output
+    # The version, not a literal: a release bump must not have to touch tests.
+    assert __version__ in CliRunner().invoke(kdl, ["--version"]).output

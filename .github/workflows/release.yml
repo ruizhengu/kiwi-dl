@@ -25,11 +25,16 @@ jobs:
 
       # A formula pins one tarball per tag; a tag that disagrees with the
       # version it carries would bake the mismatch into Homebrew forever.
+      # The version lives in TWO sources - pyproject (what the sdist metadata
+      # says) and `kiwi_dl.__version__` (what `kdl --version` and the
+      # User-Agent report). A tag is only valid when both carry it; only one
+      # being bumped is exactly how a "0.2.0" release reports "0.1.0".
       - name: Check the tag matches the package version
         run: |
           version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "tag ${GITHUB_REF_NAME} does not match pyproject v${version}"
+          runtime=$(python -c "import sys; sys.path.insert(0, 'src'); import kiwi_dl; print(kiwi_dl.__version__)")
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ] || [ "${runtime}" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match pyproject v${version} / __version__ ${runtime}"
             exit 1
           fi
 
