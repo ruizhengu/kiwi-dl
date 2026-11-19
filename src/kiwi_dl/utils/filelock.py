@@ -44,15 +44,20 @@ _BINARY = getattr(os, "O_BINARY", 0)
 if sys.platform == "win32":
     import msvcrt
 
+    # Windows byte-range locks are MANDATORY: while a handle holds the lock,
+    # every other handle's write AND read of that range fails. The lock must
+    # therefore sit beyond the marker bytes, or the creator's stamp can lose
+    # a race against a rival that opened the fresh file and locked first -
+    # leaving a sidecar that can neither be stamped nor ever removed.
+    _LOCK_OFFSET = 1000
+
     def _try_lock(fd: int) -> None:
-        """One non-blocking exclusive-lock attempt on the whole sidecar."""
-        # `_open` stamps the marker through the same descriptor, which moves
-        # its position; the lock is always taken on byte 0.
-        os.lseek(fd, 0, os.SEEK_SET)
+        """One non-blocking exclusive-lock attempt on the lock byte."""
+        os.lseek(fd, _LOCK_OFFSET, os.SEEK_SET)
         msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
 
     def _unlock(fd: int) -> None:
-        os.lseek(fd, 0, os.SEEK_SET)
+        os.lseek(fd, _LOCK_OFFSET, os.SEEK_SET)
         msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
 
 else:
@@ -128,12 +133,15 @@ class FileLock:
         """
         try:
             for _ in range(5):
-                with contextlib.suppress(OSError):
+                stamped = False
+                try:
                     os.lseek(fd, 0, os.SEEK_SET)
                     os.write(fd, LOCK_FILE_MARKER)
-                os.lseek(fd, 0, os.SEEK_SET)
-                if os.read(fd, len(LOCK_FILE_MARKER) + 1) == LOCK_FILE_MARKER:
-                    os.lseek(fd, 0, os.SEEK_SET)  # the lock below starts at byte 0
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    stamped = os.read(fd, len(LOCK_FILE_MARKER) + 1) == LOCK_FILE_MARKER
+                except OSError:
+                    stamped = False  # e.g. a rival's lock made this range unreadable
+                if stamped:
                     return
                 time.sleep(0.05)
         except BaseException:

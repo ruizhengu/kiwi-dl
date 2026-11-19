@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import logging
 import socket
+import sys
 import threading
 import time
 
 import pytest
 import requests
 
+from kiwi_dl.core import download_transport
 from kiwi_dl.core.downloader import MegaDownloader
 from kiwi_dl.core.errors import TransferCancelled
 from kiwi_dl.core.inflight import InFlightRequests, SeverableResponses
@@ -197,6 +199,15 @@ def _target(server: _Stalling, via_proxy: bool) -> tuple[str, dict | None]:
     return f"http://127.0.0.1:{server.port}/dl/x", None
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "Windows cannot wake a blocking recv from another thread - a shutdown, "
+        "CancelIoEx and a raw handle close all leave it sitting out its timeout "
+        "(each measured in CI). Production there reads in slices instead, which "
+        "the sliced test below covers on every platform."
+    ),
+)
 @pytest.mark.parametrize("via_proxy", [False, True], ids=["direct", "via-proxy"])
 def test_a_real_read_blocked_mid_body_ends_at_once(stalling, via_proxy):
     server = stalling(headers=True)
@@ -261,6 +272,10 @@ def test_a_real_request_with_no_answer_yet_is_let_go_at_once(stalling, via_proxy
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="same Windows blocked-recv limitation as the mid-body sever test above",
+)
 def test_severing_the_api_registry_ends_a_blocked_body_read(stalling):
     server = stalling(headers=True)
     url = f"http://127.0.0.1:{server.port}/dl/x"
@@ -296,3 +311,41 @@ def test_severing_the_api_registry_ends_a_blocked_body_read(stalling):
 def test_an_empty_api_registry_severs_nothing():
     """`stop_all` calls this unconditionally; an idle process must not care."""
     SeverableResponses().sever_all()
+
+
+# ---------------------------------------------------------------------------
+# The production stop path: sliced body reads
+# ---------------------------------------------------------------------------
+
+
+def test_the_sliced_body_read_ends_at_a_stop_on_every_platform(stalling):
+    """`_read_body` bounds every recv to a slice, so a stop ends the read
+    within one - including on Windows, where nothing can wake a blocked read
+    from another thread and the severing tests above cannot run."""
+    server = stalling(headers=True)
+    url = f"http://127.0.0.1:{server.port}/dl/x"
+    stop = threading.Event()
+    reading = threading.Event()
+
+    class _Dl:  # the slice of MegaDownloader the reader needs
+        _stop_event = stop
+
+    resp = requests.get(url, stream=True, timeout=(5, 15))
+    try:
+
+        def worker():
+            for _block in download_transport._read_body(resp, _Dl(), 15):
+                reading.set()
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        assert reading.wait(5)
+        time.sleep(0.1)  # into the silent second block, which never comes
+
+        stopped_at = time.monotonic()
+        stop.set()
+        thread.join(5)
+        assert time.monotonic() - stopped_at < PROMPT
+        assert not thread.is_alive()
+    finally:
+        resp.close()
