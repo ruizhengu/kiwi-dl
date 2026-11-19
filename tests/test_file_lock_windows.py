@@ -63,11 +63,16 @@ def test_a_timeout_raises_with_the_message(tmp_path):
         holder.release()
 
 
-def test_the_marker_is_written_before_the_first_lock(tmp_path):
+def test_the_marker_is_written_and_removal_needs_it(tmp_path):
+    """Windows byte-range locks refuse reads of the locked range from another
+    handle, so the stamp is checked once the lock is gone."""
     lock_path = tmp_path / "stamped.lock"
     lock = FileLock(lock_path)
     lock.acquire(timeout=5)
-    try:
-        assert lock_path.read_bytes() == LOCK_FILE_MARKER
-    finally:
-        lock.release(remove=True)
+    lock.release()  # no remove: the sidecar stays, unlocked
+    assert lock_path.read_bytes() == LOCK_FILE_MARKER
+
+    second = FileLock(lock_path)
+    second.acquire(timeout=5)
+    second.release(remove=True)
+    assert not lock_path.exists()

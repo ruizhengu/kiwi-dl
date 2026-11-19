@@ -177,6 +177,7 @@ def test_remove_refuses_without_a_terminal_or_yes(monkeypatch, calls):
 def test_purge_never_targets_the_home_directory_or_a_foreign_folder(monkeypatch, tmp_path):
     monkeypatch.delenv("KIWI_DL_HOME")
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() reads it first on Windows
     foreign = tmp_path / "Documents"
     foreign.mkdir()
     monkeypatch.setattr(self_cmd, "config_dir", lambda: tmp_path)  # $HOME itself
@@ -194,6 +195,7 @@ def test_even_a_kiwi_dl_home_override_cannot_aim_purge_at_home_or_above(
     home = tmp_path / "home" / "me"
     home.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     target = {"home": home, "a parent of home": home.parent, "root": Path("/")}[pointed_at]
     for name in ("config_dir", "data_dir", "log_dir"):
         monkeypatch.setattr(self_cmd, name, lambda target=target: target)

@@ -12,6 +12,7 @@ to run instead of having its environment changed under it.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -219,6 +220,11 @@ def remove_cmd(purge: bool, dry_run: bool, yes: bool) -> None:
         return
     if not _go_ahead("Remove kiwi-dl?", yes):
         return
+    if targets:
+        # The process's own log handler holds the log file open; on Windows
+        # that would keep the Logs folder undeletable, so the handlers are
+        # closed before anything is removed. Nothing logs to a file again.
+        logging.shutdown()
     # Data first: once the tool's environment is gone there is no code left
     # to delete it with.
     for target in targets:
@@ -229,6 +235,13 @@ def remove_cmd(purge: bool, dry_run: bool, yes: bool) -> None:
         return
     status = _run(command)
     if status:
+        if sys.platform == "win32":
+            # Windows refuses to delete a running program's directory, so the
+            # tool cannot remove its own uv/pipx environment from inside it.
+            print_info(
+                "Windows cannot delete the program while it runs: close this "
+                f"terminal, then run `{' '.join(command)}` to finish."
+            )
         click.get_current_context().exit(status)
     print_success("kiwi-dl is removed. Thanks for using it.")
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import socket
+import sys
 import threading
 from collections.abc import Iterator
 from typing import Any
@@ -46,6 +47,9 @@ def sever(response: Any) -> None:
 
     The socket is urllib3's connection's. It is gone (None) once the response
     has been read to the end and released, and then nothing is waiting on it.
+    On Windows a shutdown alone does not wake a read blocked in another
+    thread - measured in CI, it sat out its read timeout - so the socket's
+    pending I/O is cancelled as well.
     """
     connection = getattr(getattr(response, "raw", None), "connection", None)
     sock = getattr(connection, "sock", None)
@@ -53,6 +57,24 @@ def sever(response: Any) -> None:
         # Already closed by the worker leaving its `with`: nothing to wake.
         with contextlib.suppress(OSError):
             sock.shutdown(socket.SHUT_RDWR)
+        if sys.platform == "win32":
+            _cancel_socket_io(sock)
+
+
+def _cancel_socket_io(sock: Any) -> None:
+    """Windows: `CancelIoEx` on the socket handle aborts the `recv` another
+    thread is blocked in; the read raises and the transport classifies it as
+    a cancellation. Best effort: whatever refuses is suppressed."""
+    if sys.platform != "win32":
+        return
+    with contextlib.suppress(OSError, AttributeError):
+        import ctypes
+
+        cancel = ctypes.windll.kernel32.CancelIoEx
+        cancel.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        cancel.restype = ctypes.c_int
+        # A socket's fileno() IS the Windows SOCKET/HANDLE value.
+        cancel(ctypes.c_void_p(sock.fileno()), None)
 
 
 class SeverableResponses:

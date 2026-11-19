@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -39,8 +40,8 @@ KiB = 1024
 
 
 def _tree(root: Path) -> list[str]:
-    """Every file under `root`, relative and sorted."""
-    return sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+    """Every file under `root`, relative and sorted, always with `/` separators."""
+    return sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
 
 
 @pytest.fixture()
@@ -141,7 +142,11 @@ def test_a_finished_download_keeps_a_real_file_named_like_its_sidecar(
 def test_release_with_remove_deletes_the_lock_file(tmp_path):
     lock = FileLock(tmp_path / "x.lock")
     lock.acquire(timeout=0)
-    assert (tmp_path / "x.lock").read_bytes() == LOCK_FILE_MARKER
+    if sys.platform != "win32":
+        # Windows byte-range locks refuse reads of the locked range from
+        # another handle; there the marker is checked in
+        # test_file_lock_windows.py, after the release.
+        assert (tmp_path / "x.lock").read_bytes() == LOCK_FILE_MARKER
     lock.release(remove=True)
     assert not (tmp_path / "x.lock").exists()
 
@@ -195,9 +200,11 @@ def test_a_waiter_on_a_removed_lock_file_moves_to_the_current_one(tmp_path, monk
         b.release()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows cannot unlink a held lock file, so the name cannot be replaced while held",
+)
 def test_remove_leaves_a_file_that_is_not_ours_alone(tmp_path):
-    """If the name was replaced behind the holder, the new file is someone
-    else's and must survive the holder's cleanup."""
     path = tmp_path / "x.lock"
     lock = FileLock(path)
     lock.acquire(timeout=0)
@@ -225,6 +232,10 @@ def _lose_the_name_after_every_open(monkeypatch, path: Path) -> list[int]:
     return opens
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the rival simulates its move by unlinking an open file - Windows cannot",
+)
 @pytest.mark.parametrize("timeout", [0, 0.2])
 def test_a_name_that_keeps_moving_cannot_hold_acquire_past_its_timeout(
     tmp_path, monkeypatch, timeout
@@ -241,9 +252,11 @@ def test_a_name_that_keeps_moving_cannot_hold_acquire_past_its_timeout(
         assert len(opens) == 1, "a try-lock must make exactly one attempt"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the rival simulates its move by unlinking an open file - Windows cannot",
+)
 def test_a_claim_moves_on_when_a_name_keeps_moving(tmp_path, monkeypatch):
-    """`claim_destination` holds the process-wide claim lock while it tries
-    each name, so a name that never settles must cost one attempt, not a hang."""
     _lose_the_name_after_every_open(monkeypatch, tmp_path / ("movie.mkv" + CLAIM_SUFFIX))
 
     claimed = claim_destination(tmp_path / "movie.mkv")

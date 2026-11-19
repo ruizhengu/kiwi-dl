@@ -37,6 +37,10 @@ from pathlib import Path
 
 LOCK_FILE_MARKER = b"kiwi-dl lock file; safe to delete when no kiwi-dl transfer is running\n"
 
+# Without O_BINARY the Windows CRT opens the descriptor in text mode and the
+# marker's "\n" lands as "\r\n" - byte comparisons with the marker then fail.
+_BINARY = getattr(os, "O_BINARY", 0)
+
 if sys.platform == "win32":
     import msvcrt
 
@@ -100,10 +104,10 @@ class FileLock:
         path = str(self.path)
         while True:
             try:
-                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR | _BINARY)
             except FileExistsError:
                 try:
-                    return os.open(path, os.O_RDWR)
+                    return os.open(path, os.O_RDWR | _BINARY)
                 except FileNotFoundError:
                     continue  # removed between the two opens: create it
             # A lock without its marker still locks; it is only never removed.

@@ -108,17 +108,14 @@ jobs:
 
       # A fresh install is not on PATH in the same session on Windows either;
       # the shim folder is added here the way the installer's note tells the
-      # user to open a new terminal for.
+      # user to open a new terminal for. No `remove`: Windows cannot delete a
+      # running program's directory, so the tool cannot remove its own uv/pipx
+      # environment from inside it - `kiwi-dl remove` says so there.
       - if: matrix.os == 'windows-latest'
-        name: Use, update and remove the installed tool (Windows)
+        name: Use and update the installed tool (Windows)
         run: |
           $env:PATH += ";$env:USERPROFILE\.local\bin"
           kiwi-dl --version
           kdl --help | Out-Null
           kiwi-dl update --dry-run
           kiwi-dl completion zsh | Out-Null
-          kiwi-dl remove --purge --yes
-          if (Get-Command kiwi-dl -ErrorAction SilentlyContinue) {
-            Write-Host "kiwi-dl is still installed"
-            exit 1
-          }

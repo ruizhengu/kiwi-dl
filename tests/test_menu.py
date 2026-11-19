@@ -196,8 +196,10 @@ def test_the_main_loop_runs_an_action_and_quits(tmp_path):
 
 
 def test_the_menu_suggests_downloads_not_the_current_directory(monkeypatch, tmp_path):
-    # HOME, not a patched Path.home: `expanduser` reads the variable directly.
+    # The env vars, not a patched Path.home: `expanduser` reads them directly
+    # (USERPROFILE first on Windows, HOME on macOS and Linux).
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     (tmp_path / "Downloads").mkdir()
 
     class Cfg:

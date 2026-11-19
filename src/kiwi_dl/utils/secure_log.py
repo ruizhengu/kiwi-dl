@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import os
 import stat
-import sys
 
 OWNER_ONLY = 0o600
 
@@ -75,8 +74,9 @@ def _verify_posix(fd: int, path: str) -> None:
 
 def _open_posix(path: str) -> int:
     # O_NOFOLLOW on every open: a symlink planted at the log path must never
-    # redirect the write, and must never be "handled" by falling back.
-    flags = os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW
+    # redirect the write, and must never be "handled" by falling back. It is
+    # looked up defensively, so a faked platform cannot crash the open.
+    flags = os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
     try:
         fd = os.open(path, flags | os.O_CREAT | os.O_EXCL, OWNER_ONLY)
     except FileExistsError:
@@ -127,6 +127,13 @@ def _open_windows(path: str) -> int:
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_EXCL)
     except FileExistsError:
         pass
+    except OSError:
+        # A junction to a directory, or another target the create cannot
+        # open, refuses outright; classify it by lstat rather than trust it.
+        info = os.lstat(path)
+        if _is_reparse(info):
+            raise InsecureLogFileError(f"log path is a symlink: {path}") from None
+        raise
     else:
         try:
             _verify_windows(fd, path)
@@ -164,9 +171,14 @@ def open_secure(path: str | os.PathLike[str]) -> int:
     The single secure-open implementation, shared by `append_line` and by the
     CLI's rotating file handler. Raises `InsecureLogFileError` (an `OSError`)
     rather than returning a descriptor on a file it could not secure.
+
+    Dispatched on `os.name`, not `sys.platform`: the platform string is
+    monkeypatchable by tests (pathlib itself keys on `os.name`, so nothing
+    ever fakes that), and the two arms are defensive about which `os` flags
+    exist.
     """
     target = os.fspath(path)
-    if sys.platform == "win32":
+    if os.name == "nt":
         return _open_windows(target)
     return _open_posix(target)
 

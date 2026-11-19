@@ -16,7 +16,14 @@
 - A stop now also severs the API session's in-flight requests, on every
   platform: Ctrl-C during a CDN-URL refresh used to wait out the API timeout
   before the resume snapshot was saved. The speed limiter gives up its wait
-  when stopped, and the quota wait ticks every second instead of two.
+  when stopped, and the quota wait ticks every second instead of two. On
+  Windows the severed read is cancelled outright - a socket shutdown alone
+  does not wake a read blocked in another thread there.
+- `kiwi-dl remove --purge` closes its own log handlers before deleting, so the
+  Logs folder goes too (on Windows the open file would have kept it there).
+  And because Windows cannot delete a running program's directory, a failed
+  `kiwi-dl remove` on Windows says to close the terminal and run the
+  uninstall command yourself.
 - CI runs the suite on Windows (Python 3.10-3.14) and installs with
   `install.ps1` there, with uv and with pipx.
 

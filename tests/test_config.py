@@ -16,7 +16,8 @@ from kiwi_dl.config import (
 @pytest.fixture()
 def no_home_override(monkeypatch, tmp_path):
     """Undo the suite-wide KIWI_DL_HOME so the platform rules apply, with a
-    throwaway $HOME and no XDG variables."""
+    throwaway home directory and no XDG variables. `USERPROFILE` too, because
+    `Path.home()` reads it first on Windows."""
     monkeypatch.delenv("KIWI_DL_HOME", raising=False)
     monkeypatch.delenv("KIWI_DL_LOG_DIR", raising=False)
     for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
@@ -24,6 +25,7 @@ def no_home_override(monkeypatch, tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     return home
 
 
