@@ -1,8 +1,9 @@
 """`kiwi-dl update`, `kiwi-dl remove` and `kiwi-dl completion`: kiwi-dl managing itself.
 
-kiwi-dl is installed as a tool by uv or pipx (see install.sh). Each leaves a
-marker in the tool's own environment - `uv-receipt.toml` or
-`pipx_metadata.json` - and pip records where the package came from in
+kiwi-dl is installed as a tool by uv or pipx (see install.sh), or by Homebrew
+from the ruizhengu/tap. Each leaves a marker in the tool's own environment -
+`uv-receipt.toml`, `pipx_metadata.json`, or Homebrew's `INSTALL_RECEIPT.json`
+at the keg root - and pip records where the package came from in
 `direct_url.json`, so the same tool can update or remove it from the same
 source. Anything else (a plain pip install, a source checkout) gets told what
 to run instead of having its environment changed under it.
@@ -38,7 +39,7 @@ _console = make_console()
 class Install:
     """How this copy of kiwi-dl was installed."""
 
-    manager: str  # "uv" | "pipx" | "editable" | "pip"
+    manager: str  # "uv" | "pipx" | "brew" | "editable" | "pip"
     source: str  # what to reinstall from: a git URL@ref or a local directory
     prefix: Path
 
@@ -66,6 +67,13 @@ def _source_from(direct: dict) -> str:
     return DEFAULT_SOURCE
 
 
+def _brew_receipt_present(prefix: Path) -> bool:
+    """Homebrew writes `INSTALL_RECEIPT.json` at the keg root. A Python
+    formula's venv lives in `libexec` inside the keg, one level below it, so
+    both spellings are checked."""
+    return any((at / "INSTALL_RECEIPT.json").is_file() for at in (prefix, prefix.parent))
+
+
 def detect_install(prefix: Path | None = None, direct: dict | None = None) -> Install:
     prefix = Path(sys.prefix) if prefix is None else prefix
     direct = _direct_url() if direct is None else direct
@@ -74,6 +82,8 @@ def detect_install(prefix: Path | None = None, direct: dict | None = None) -> In
         return Install("uv", source, prefix)
     if (prefix / "pipx_metadata.json").is_file():
         return Install("pipx", source, prefix)
+    if _brew_receipt_present(prefix):
+        return Install("brew", source, prefix)
     if (direct.get("dir_info") or {}).get("editable"):
         return Install("editable", source, prefix)
     return Install("pip", source, prefix)
@@ -99,6 +109,11 @@ def _manual_hint(install: Install, action: str) -> str:
     if install.manager == "editable":
         where = report.short_path(install.source)
         return f"This is a source checkout ({where}): {action} it with git, e.g. `git pull`."
+    if install.manager == "brew":
+        # Homebrew owns the keg, so kiwi-dl never touches its own install.
+        if action == "update":
+            return "Installed with Homebrew: run `brew upgrade kiwi-dl`."
+        return "Installed with Homebrew: run `brew uninstall kiwi-dl`."
     if action == "update":
         return f"Installed with pip: run `python -m pip install --upgrade '{install.source}'`."
     return "Installed with pip: run `python -m pip uninstall kiwi-dl`."

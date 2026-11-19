@@ -38,12 +38,24 @@ def _as(monkeypatch, install: Install) -> None:
 
 
 @pytest.mark.parametrize(
-    ("marker", "manager"), [("uv-receipt.toml", "uv"), ("pipx_metadata.json", "pipx")]
+    ("marker", "manager"),
+    [("uv-receipt.toml", "uv"), ("pipx_metadata.json", "pipx"), ("INSTALL_RECEIPT.json", "brew")],
 )
 def test_the_tool_that_installed_kiwi_dl_is_read_from_its_marker(tmp_path, marker, manager):
     (tmp_path / marker).write_text("")
     install = detect_install(prefix=tmp_path, direct=GIT)
     assert install.manager == manager
+    assert install.source == "git+https://github.com/ruizhengu/kiwi-dl@main"
+
+
+def test_a_brew_python_formula_is_detected_through_the_keg_root_receipt(tmp_path):
+    """A brew Python formula's venv lives in libexec inside the keg, so its
+    receipt is one level above sys.prefix rather than in it."""
+    keg = tmp_path / "Cellar" / "kiwi-dl" / "0.1.0"
+    (keg / "libexec").mkdir(parents=True)
+    (keg / "INSTALL_RECEIPT.json").write_text("")
+    install = detect_install(prefix=keg / "libexec", direct=GIT)
+    assert install.manager == "brew"
     assert install.source == "git+https://github.com/ruizhengu/kiwi-dl@main"
 
 
@@ -87,6 +99,13 @@ def test_a_source_checkout_is_told_to_use_git_instead(monkeypatch, calls):
     result = CliRunner().invoke(cli, ["update"])
     assert calls == []
     assert "git pull" in result.output
+
+
+def test_a_brew_install_is_told_to_use_brew_instead(monkeypatch, calls):
+    _as(monkeypatch, Install("brew", "", Path("/p")))
+    result = CliRunner().invoke(cli, ["update"])
+    assert calls == []
+    assert "brew upgrade kiwi-dl" in result.output
 
 
 def test_a_failed_update_exits_with_the_tools_status(monkeypatch):
@@ -136,6 +155,14 @@ def test_remove_dry_run_lists_and_keeps_everything(monkeypatch, calls):
     assert calls == []
     assert (home / "Config" / "file").exists()
     assert "Config" in result.output
+
+
+def test_a_brew_remove_points_at_brew_uninstall(monkeypatch, calls):
+    _as(monkeypatch, Install("brew", "", Path("/p")))
+    result = CliRunner().invoke(cli, ["remove", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert calls == []
+    assert "brew uninstall kiwi-dl" in result.output
 
 
 def test_remove_refuses_without_a_terminal_or_yes(monkeypatch, calls):
