@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 
 import requests
 from urllib3.exceptions import ProtocolError, ReadTimeoutError  # requests' transport
@@ -272,6 +273,13 @@ def fetch_chunk(
     with open(destination, "r+b") as f:
         f.seek(chunk.offset)
         f.write(plaintext)
+    log.debug(
+        "chunk %d wrote %d bytes at %d (file now %d bytes)",
+        chunk.index,
+        len(plaintext),
+        chunk.offset,
+        os.path.getsize(destination),
+    )
 
     with dl._lock:
         state.mark_chunk_done(chunk.index, mac)
