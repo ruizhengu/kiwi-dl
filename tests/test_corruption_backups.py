@@ -168,6 +168,7 @@ def test_recovered_config_is_valid_json_after_two_episodes(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8"))["max_workers"] == 8
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits")
 def test_backup_permissions_are_not_widened(tmp_path):
     """A preserved config can still contain secrets (a proxy URL with its
     password), so the copy must be owner-only."""

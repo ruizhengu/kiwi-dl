@@ -249,9 +249,17 @@ def _xdg(variable: str, default: str) -> Path:
     return Path(value) if value and Path(value).is_absolute() else Path.home() / default
 
 
+def _windows_appdata(variable: str, default: str) -> Path:
+    """A per-user Windows profile folder: `%APPDATA%` or `%LOCALAPPDATA%` when
+    set to an absolute path, else the conventional path under the home."""
+    value = os.environ.get(variable, "")
+    return Path(value) if value and Path(value).is_absolute() else Path.home() / "AppData" / default
+
+
 def _platform_dirs() -> tuple[Path, Path, Path]:
     """Where this platform keeps an application's (config, data, logs): macOS's
-    Library folders, or the XDG directories everywhere else.
+    Library folders, Windows's per-user AppData folders, or the XDG directories
+    everywhere else.
 
     Never the current directory: an installed CLI used to fall back to it, so
     config, proxies and logs landed in `./User/` of whatever folder it ran from.
@@ -259,6 +267,10 @@ def _platform_dirs() -> tuple[Path, Path, Path]:
     if sys.platform == "darwin":
         support = Path.home() / "Library" / "Application Support" / APP_NAME
         return support, support, Path.home() / "Library" / "Logs" / APP_NAME
+    if sys.platform == "win32":
+        roaming = _windows_appdata("APPDATA", "Roaming") / APP_NAME
+        local = _windows_appdata("LOCALAPPDATA", "Local") / APP_NAME
+        return roaming, roaming, local / "logs"
     return (
         _xdg("XDG_CONFIG_HOME", ".config") / APP_NAME,
         _xdg("XDG_DATA_HOME", ".local/share") / APP_NAME,

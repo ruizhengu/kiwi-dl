@@ -53,6 +53,27 @@ def test_linux_honours_xdg_variables_but_not_relative_ones(monkeypatch, no_home_
     assert data_dir() == no_home_override / ".local" / "share" / "kiwi-dl"
 
 
+def test_windows_keeps_state_in_appdata(monkeypatch, no_home_override):
+    monkeypatch.setattr(sys, "platform", "win32")
+    appdata = no_home_override / "AppData" / "Roaming"
+    localappdata = no_home_override / "AppData" / "Local"
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setenv("LOCALAPPDATA", str(localappdata))
+
+    assert config_file() == appdata / "kiwi-dl" / "config.json"
+    assert data_dir() == appdata / "kiwi-dl"
+    assert log_dir() == localappdata / "kiwi-dl" / "logs"
+
+
+def test_windows_appdata_falls_back_to_the_home_convention(monkeypatch, no_home_override):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    assert config_file() == no_home_override / "AppData" / "Roaming" / "kiwi-dl" / "config.json"
+    assert log_dir() == no_home_override / "AppData" / "Local" / "kiwi-dl" / "logs"
+
+
 def test_kiwi_dl_home_keeps_everything_in_one_place(monkeypatch, tmp_path: Path):
     home = tmp_path / "portable"
     monkeypatch.setenv("KIWI_DL_HOME", str(home))

@@ -13,6 +13,7 @@ Download
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 from pathlib import Path
@@ -32,8 +33,12 @@ def short_path(path: Path | str) -> str:
     home = str(Path.home())
     if text == home:
         return "~"
-    if text.startswith(home + "/"):
-        return "~" + text[len(home) :]
+    # POSIX paths arrive with "/", Windows ones with "\\" (or a display-only
+    # as_posix form); both abbreviate from the home prefix.
+    for separator in (os.sep, "/"):
+        prefix = home + separator
+        if text.startswith(prefix):
+            return "~" + text[len(home) :]
     return text
 
 
@@ -46,10 +51,14 @@ def machine_name() -> str:
 
 
 def os_name() -> str:
-    """`macOS 26.6`, or the distribution's own name on Linux (`Ubuntu 24.04 LTS`)."""
+    """`macOS 26.6`, the distribution's own name on Linux (`Ubuntu 24.04 LTS`),
+    or `Windows 11`."""
     if platform.system() == "Darwin":
         version = platform.mac_ver()[0]
         return f"macOS {version}" if version else "macOS"
+    if platform.system() == "Windows":
+        version = platform.win32_ver()[0]
+        return f"Windows {version}" if version else "Windows"
     try:
         for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
             if line.startswith("PRETTY_NAME="):

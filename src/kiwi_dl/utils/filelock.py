@@ -1,16 +1,24 @@
 """Advisory file lock shared by the config, proxy-pool and state stores.
 
-`fcntl.flock` blocks other processes AND other open descriptors in the same
-process, so two store instances anywhere (threads, instances, or processes)
-are serialized. Acquisition is bounded by a timeout and never silently skipped.
+The lock serializes users across processes AND across handles in one
+process: `fcntl.flock` on macOS and Linux, a `msvcrt.locking` byte-range
+lock on Windows (one byte at offset 0, which is all a sidecar needs).
+Acquisition is bounded by a timeout and never silently skipped.
 
 A lock file may be removed, but only by its holder and only while it still
 holds it (`release(remove=True)`). That is safe because `acquire` does not
-trust a lock until the path still names the file it locked: `flock` locks an
-inode, not a name, so a waiter that opened the file before it was removed
-would otherwise win the lock on an orphan while a newcomer created and locked
-a fresh file under the same name - two owners. The waiter sees the name moved,
-drops the orphan and contends on the current file instead.
+trust a lock until the path still names the file it locked: the underlying
+lock guards a file, not a name, so a waiter that opened the file before it
+was removed would otherwise win the lock on an orphan while a newcomer
+created and locked a fresh file under the same name - two owners. The
+waiter sees the name moved, drops the orphan and contends on the current
+file instead.
+
+Windows cannot unlink an open file, so there the holder removes the file
+*after* unlocking it, re-verifying both the identity it held and the
+marker on a fresh descriptor first. The gap between unlock and unlink is
+covered by the same re-check that covers every other surprise: a lock won
+on a file whose name has since moved is dropped, never trusted.
 
 Only a file this module created is ever removed. A lock path can collide with
 a real file (a folder share may hold both `a.bin` and `a.bin.mbclaim`), so a
@@ -22,12 +30,35 @@ written to.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import os
+import sys
 import time
 from pathlib import Path
 
 LOCK_FILE_MARKER = b"kiwi-dl lock file; safe to delete when no kiwi-dl transfer is running\n"
+
+if sys.platform == "win32":
+    import msvcrt
+
+    def _try_lock(fd: int) -> None:
+        """One non-blocking exclusive-lock attempt on the whole sidecar."""
+        # `_open` stamps the marker through the same descriptor, which moves
+        # its position; the lock is always taken on byte 0.
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+
+    def _unlock(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _try_lock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 class FileLockError(Exception):  # noqa: N818 - a timeout, not a generic error
@@ -85,7 +116,7 @@ class FileLock:
     def _lock(self, fd: int, deadline: float, timeout: float) -> None:
         while True:
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _try_lock(fd)
                 return
             except OSError:
                 if time.monotonic() >= deadline:
@@ -118,16 +149,21 @@ class FileLock:
         return os.pread(fd, len(LOCK_FILE_MARKER) + 1, 0) == LOCK_FILE_MARKER
 
     def release(self, *, remove: bool = False) -> None:
-        """Unlock; with `remove`, delete the lock file first, still locked.
+        """Unlock; with `remove`, delete the lock file.
 
-        Deleting before unlocking is what makes removal safe: anyone who
-        opened the old file and locks it after this sees the name gone in
-        `acquire` and starts over. Only a file stamped by `_open` is deleted;
-        a name that points elsewhere, or at a file this module did not
-        create, is left alone.
+        On macOS/Linux it is deleted while still locked: anyone who opened
+        the old file and locks it after this sees the name gone in `acquire`
+        and starts over. Windows cannot unlink an open file, so there the
+        holder unlocks, closes, and only then deletes - re-verified first,
+        as the module docstring describes. Only a file stamped by `_open` is
+        deleted; a name that points elsewhere, or at a file this module did
+        not create, is left alone.
         """
         fd, self._fd = self._fd, None
         if fd is None:
+            return
+        if sys.platform == "win32":
+            self._release_windows(fd, remove=remove)
             return
         try:
             if remove:
@@ -135,6 +171,39 @@ class FileLock:
                     if self._is_removable(fd):
                         os.unlink(self.path)
             with contextlib.suppress(OSError):
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                _unlock(fd)
         finally:
             os.close(fd)
+
+    def _release_windows(self, fd: int, *, remove: bool) -> None:
+        """Windows release: unlock and close before any removal is possible."""
+        identity: tuple[int, int] | None = None
+        if remove and self._path_names(fd):
+            held = os.fstat(fd)
+            identity = (held.st_dev, held.st_ino)
+        try:
+            with contextlib.suppress(OSError):
+                _unlock(fd)
+        finally:
+            os.close(fd)
+        if identity is not None:
+            self._unlink_marked(identity)
+
+    def _unlink_marked(self, identity: tuple[int, int]) -> None:
+        """Delete `self.path` when it is still the marked file we held."""
+        try:
+            fd = os.open(self.path, os.O_RDWR)
+        except OSError:
+            return
+        try:
+            held = os.fstat(fd)
+            if (held.st_dev, held.st_ino) != identity:
+                return  # the name moved on after we let go: not ours to remove
+            if os.read(fd, len(LOCK_FILE_MARKER) + 1) != LOCK_FILE_MARKER:
+                return
+        except OSError:
+            return
+        finally:
+            os.close(fd)
+        with contextlib.suppress(OSError):
+            os.unlink(self.path)

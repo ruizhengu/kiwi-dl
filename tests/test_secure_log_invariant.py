@@ -134,7 +134,11 @@ def test_a_new_log_is_created_0600_and_verified_before_the_first_byte(
 
     info = path.lstat()
     assert stat.S_ISREG(info.st_mode), "not a regular file"
-    assert stat.S_IMODE(info.st_mode) == OWNER_ONLY, oct(stat.S_IMODE(info.st_mode))
+    if sys.platform == "win32":
+        # Windows has no mode bits: plain-file-ness is the invariant there.
+        assert not info.st_file_attributes & 0x400, "the log is a reparse point"
+    else:
+        assert stat.S_IMODE(info.st_mode) == OWNER_ONLY, oct(stat.S_IMODE(info.st_mode))
     assert order.index("fstat") < order.index(
         "fdopen"
     ), f"the descriptor was handed to a writer before it was verified: {order}"
@@ -145,6 +149,7 @@ def test_a_new_log_is_created_0600_and_verified_before_the_first_byte(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits: no permissive mode exists")
 def test_a_permissive_pre_existing_file_is_never_written_while_permissive(tmp_path, umask_zero):
     path = tmp_path / "planted.log"
     path.write_text("planted\n", encoding="utf-8")
@@ -184,7 +189,10 @@ def test_a_symlink_at_the_log_path_is_not_followed_by_append_line(tmp_path, umas
     target.write_text("victim contents\n", encoding="utf-8")
     before = target.read_bytes()
     link = tmp_path / "cli.log"
-    link.symlink_to(target)
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation not permitted on this platform/account")
 
     with pytest.raises(InsecureLogFileError):
         secure_log.append_line(link, "ours")
@@ -199,7 +207,10 @@ def test_a_symlink_at_the_log_path_is_not_followed_by_the_rotating_handler(
     target.write_text("victim contents\n", encoding="utf-8")
     before = target.read_bytes()
     link = tmp_path / "cli.log"
-    link.symlink_to(target)
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation not permitted on this platform/account")
     spy = _OpenSpy(monkeypatch)
 
     with pytest.raises(InsecureLogFileError):
@@ -214,7 +225,13 @@ def test_a_symlink_at_the_log_path_is_not_followed_by_the_rotating_handler(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", ["directory", "fifo"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "directory",
+        pytest.param("fifo", marks=pytest.mark.skipif(os.name == "nt", reason="no mkfifo")),
+    ],
+)
 def test_a_non_regular_path_is_rejected(tmp_path, umask_zero, kind):
     path = tmp_path / "cli.log"
     if kind == "directory":
@@ -233,7 +250,14 @@ def test_a_non_regular_path_is_rejected(tmp_path, umask_zero, kind):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("victim", ["open", "fchmod", "fstat"])
+@pytest.mark.parametrize(
+    "victim",
+    [
+        "open",
+        "fstat",
+        pytest.param("fchmod", marks=pytest.mark.skipif(os.name == "nt", reason="no fchmod")),
+    ],
+)
 def test_a_failed_secure_open_never_falls_back_to_an_ordinary_open(
     tmp_path, umask_zero, monkeypatch, victim
 ):
@@ -288,7 +312,10 @@ def test_rotation_leaves_every_file_owner_only(tmp_path, umask_zero, logging_tea
     produced = [log_file, log_file.with_name("cli.log.1")]
     assert produced[1].exists(), "no rotation happened - this test would prove nothing"
     for path in produced:
-        assert _mode(path) == OWNER_ONLY, f"{path.name} is {oct(_mode(path))}"
+        if sys.platform == "win32":
+            assert stat.S_ISREG(path.lstat().st_mode), f"{path.name} is not a regular file"
+        else:
+            assert _mode(path) == OWNER_ONLY, f"{path.name} is {oct(_mode(path))}"
 
 
 def _plant_symlink(link: Path, target: Path) -> None:
@@ -303,7 +330,10 @@ def _plant_symlink(link: Path, target: Path) -> None:
     """
     if link.is_symlink() or link.exists():
         link.unlink()
-    link.symlink_to(target)
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation not permitted on this platform/account")
 
 
 def test_a_symlink_at_a_rotation_destination_makes_rollover_fail_closed(
@@ -325,7 +355,8 @@ def test_a_symlink_at_a_rotation_destination_makes_rollover_fail_closed(
     assert victim.read_bytes() == before, "rollover followed the planted symlink"
     assert (tmp_path / "cli.log.1").is_symlink(), "the planted symlink was replaced"
     assert spy.calls == [] or spy.unsafe(log_file) == [], "an unsafe fallback open ran"
-    assert _mode(log_file) == OWNER_ONLY
+    if sys.platform != "win32":
+        assert _mode(log_file) == OWNER_ONLY
 
 
 def test_a_rollover_failure_disables_the_file_handler_instead_of_writing(
@@ -346,12 +377,46 @@ def test_a_rollover_failure_disables_the_file_handler_instead_of_writing(
 
 
 # ---------------------------------------------------------------------------
-# 7-9. Windows DACLs
+# 7-9. Windows: reparse points and plain-file verification (run on Windows CI)
 # ---------------------------------------------------------------------------
 
 
 def _icacls(path: Path) -> str:
     return subprocess.run(["icacls", str(path)], capture_output=True, text=True, timeout=60).stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows reparse-point checks")
+def test_a_new_log_on_windows_is_a_plain_regular_file(tmp_path):
+    path = tmp_path / "cli.log"
+    secure_log.append_line(path, "hello")
+
+    info = path.lstat()
+    assert stat.S_ISREG(info.st_mode), "not a regular file"
+    assert not info.st_file_attributes & 0x400, "the log is a reparse point"
+    assert "hello" in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="junctions are a Windows filesystem object")
+def test_a_junction_at_the_log_path_is_rejected(tmp_path):
+    """A junction redirects writes like a symlink, needs no privilege to
+    create, and `stat.S_ISLNK` does not see it - the reparse-point check is
+    its gate."""
+    target = tmp_path / "victim"
+    target.mkdir()
+    link = tmp_path / "cli.log"
+    made = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if made.returncode != 0:
+        pytest.skip(f"junction creation not permitted here: {made.stderr.strip()}")
+
+    with pytest.raises(InsecureLogFileError):
+        secure_log.append_line(link, "ours")
+
+    assert not list(target.iterdir()), "the write went through the junction"
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +486,11 @@ def test_the_secure_open_flags_are_exclusive_and_never_follow(tmp_path, monkeypa
     secure_log.append_line(tmp_path / "new.log", "hello")
 
     flags, mode = seen[0]
-    assert mode == OWNER_ONLY, oct(mode)
     assert flags & os.O_CREAT and flags & os.O_EXCL, oct(flags)
-    if sys.platform != "win32":
+    if sys.platform == "win32":
+        # No mode bits and no O_NOFOLLOW on Windows; the descriptor checks
+        # in `_verify_windows` carry the guarantee instead.
+        assert not flags & getattr(os, "O_NOFOLLOW", 0), oct(flags)
+    else:
+        assert mode == OWNER_ONLY, oct(mode)
         assert flags & os.O_NOFOLLOW, oct(flags)
