@@ -2,7 +2,7 @@
 
 import pytest
 
-from kiwi_dl.core.links import LinkType, is_mega_url, parse_link
+from kiwi_dl.core.links import LinkType, parse_link
 
 
 @pytest.mark.parametrize(
@@ -37,9 +37,3 @@ def test_parse_link_accepts_trailing_slash_after_key():
 def test_parse_link_rejects_non_mega():
     with pytest.raises(ValueError):
         parse_link("https://example.com/file/abc")
-
-
-def test_is_mega_url():
-    assert is_mega_url("https://mega.nz/file/abc")
-    assert is_mega_url("https://mega.co.nz/file/abc")
-    assert not is_mega_url("https://example.com")

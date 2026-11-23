@@ -148,25 +148,3 @@ def test_noop_limiter_takes_the_stop_keyword_too() -> None:
     stop = threading.Event()
     NoOpLimiter().consume(10**9, stop=stop)
     make_limiter(0).consume(10**9, stop=stop)
-
-
-def test_set_rate_mid_consume_is_safe() -> None:
-    clock = FakeClock()
-    bucket = TokenBucket(rate=1024, burst=512, clock=clock.time, sleeper=clock.sleep)
-
-    def sleeper(seconds: float) -> None:
-        clock.sleep(seconds)
-        # Simulate a runtime rate change during the wait loop.
-        bucket.set_rate(0)
-
-    bucket._sleep = sleeper
-    _run_with_timeout(lambda: bucket.consume(10 * 1024 * 1024))
-    # Rate was set to 0 (unlimited) after the first wait; consume() must return.
-
-
-def test_set_rate_lower_keeps_bucket_consistent() -> None:
-    clock = FakeClock()
-    bucket = TokenBucket(rate=4096, clock=clock.time, sleeper=clock.sleep)
-    bucket.set_rate(512)
-    assert bucket._tokens <= bucket.burst
-    _run_with_timeout(lambda: bucket.consume(8 * 1024))

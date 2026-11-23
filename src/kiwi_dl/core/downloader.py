@@ -39,17 +39,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
-from tenacity.stop import stop_base
 
 from ..proxy.quota_router import ChunkRouter, Route, RouteAgain, SmartProxyPolicy
-from ..proxy.selector import ProxySelector
 from ..utils.helpers import available_disk_space, claim_destination, release_destination
 from ..utils.speed import RollingSpeedMeter, make_limiter
-from .api import sever_inflight_api
+from .api import default_user_agent, sever_inflight_api
 from .chunks import Chunk, iter_chunks
-from .download_source import ResolvedSource, resolve_download_source
-from .download_transport import URL_EXPIRY_STATUS, CdnUrlExpired, fetch_chunk
+from .download_source import resolve_download_source
+from .download_transport import CdnUrlExpired, fetch_chunk
 from .download_verify import (
     DeclaredSizeError,
     InsufficientDiskSpaceError,
@@ -68,7 +65,6 @@ from .errors import (
 )
 from .inflight import InFlightRequests
 from .progress_ticker import progress_ticker
-from .range_validation import validate_range_response
 from .state import (
     STATE_FORMAT_VERSION,
     TransferState,
@@ -86,6 +82,15 @@ log = logging.getLogger(__name__)
 # at most this often, so a quota that comes back is noticed within a minute.
 QUOTA_RECHECK_SECONDS = 60
 
+# Bounded exponential backoff for transient chunk errors (2s, 4s, 8s, 16s, 30s...).
+# `_chunk_retry_delay` is read at call time so tests can zero out sleeps cleanly.
+CHUNK_RETRY_ATTEMPTS = 8
+
+
+def _chunk_retry_delay(attempt: int) -> float:
+    return min(30.0, float(2 * (2**attempt)))
+
+
 __all__ = [
     "CdnUrlExpired",
     "DeclaredSizeError",
@@ -93,9 +98,6 @@ __all__ = [
     "DownloadResult",
     "InsufficientDiskSpaceError",
     "MegaDownloader",
-    "ResolvedSource",
-    "URL_EXPIRY_STATUS",
-    "validate_range_response",
 ]
 
 
@@ -149,34 +151,9 @@ def _is_transient_chunk_failure(exc: BaseException) -> bool:
     )
 
 
-# The stop event of the download each chunk worker is serving. tenacity hands
-# its `sleep` only a number of seconds, so the backoff below finds its download
-# through the thread it runs on - the same thread that made the attempt.
-_worker = threading.local()
-
 # Every downloader alive in this process, for `MegaDownloader.stop_all`.
 _live_downloaders: weakref.WeakSet[MegaDownloader] = weakref.WeakSet()
 _live_lock = threading.Lock()
-
-
-def _sleep_unless_stopped(seconds: float) -> None:
-    """Retry backoff that ends the moment the worker's download is stopped.
-
-    `time.sleep` held a stopped worker for up to 30 s per chunk, and the pool
-    cannot let go of a download until every worker has returned.
-    """
-    stop_event = getattr(_worker, "stop_event", None)
-    if stop_event is None:
-        time.sleep(seconds)
-    else:
-        stop_event.wait(seconds)
-
-
-class _StopWhenDownloadStopped(stop_base):
-    """tenacity stop condition: no further attempts once the download is stopped."""
-
-    def __call__(self, retry_state) -> bool:
-        return bool(retry_state.args[0]._stop_event.is_set())
 
 
 def _local_route_fingerprint() -> str | None:
@@ -227,8 +204,6 @@ class MegaDownloader:
         user_agent: str | None = None,
         smart_proxy: SmartProxyPolicy | None = None,
     ):
-        from .api import default_user_agent
-
         self.api = api
         self.max_workers = max(1, max_workers)
         self.verify_integrity = verify_integrity
@@ -239,9 +214,6 @@ class MegaDownloader:
         # back so the pool can cool down or promote entries.
         self.proxy_pool = proxy_pool
         self.force_proxy = force_proxy
-        # One shared selection authority (see proxy/selector.py); the old
-        # per-class copy of this logic is gone.
-        self._selector = ProxySelector(pool=proxy_pool, static=proxies, force=force_proxy)
         # Chunk routing (see proxy/quota_router.py): direct first, the pool
         # once a 509 opens the command's proxy window. One policy is shared
         # by every download of a command; the router's per-worker state is
@@ -292,9 +264,25 @@ class MegaDownloader:
         with _live_lock:
             _live_downloaders.add(self)
 
-    def _proxies_for_request(self) -> tuple[dict[str, str] | None, str | None]:
-        """Per-request proxy decision, delegated to the shared selector."""
-        return self._selector.select()
+    def clone(self, *, api=None) -> MegaDownloader:
+        """Return an independent downloader sharing policy, pool, and limiter."""
+        return MegaDownloader(
+            api=api if api is not None else self.api,
+            max_workers=self.max_workers,
+            verify_integrity=self.verify_integrity,
+            timeout=self.timeout,
+            proxies=self.proxies,
+            proxy_pool=self.proxy_pool,
+            force_proxy=self.force_proxy,
+            quota_wait_seconds=self.quota_wait_seconds,
+            quota_max_wait_loops=self.quota_max_wait_loops,
+            keep_state_files_on_error=self.keep_state_files_on_error,
+            overwrite=self.overwrite,
+            limiter=self.limiter,
+            auto_resume=self.auto_resume,
+            user_agent=self.user_agent,
+            smart_proxy=self.smart_proxy,
+        )
 
     def stop(self) -> None:
         """Signal all worker threads to stop, and cut off the requests they wait on.
@@ -378,16 +366,8 @@ class MegaDownloader:
         raise QuotaError(message="Quota recovery exhausted")
 
     def _pool_route_available(self) -> bool:
-        """True when the pool still holds an entry it could hand the next try.
-
-        Read-only on purpose. `select()` would raise ProxyRequiredError under
-        force mode, turning "should I wait?" into a hard failure, and `pick()`
-        would mutate `last_used` for a request nobody is making. The retry
-        itself still goes through `ProxySelector.select()` like every other
-        request, so this decides only WHEN to retry - never whether the socket
-        may be direct.
-        """
-        pool = self._selector.pool
+        """True when the pool still holds an entry it could hand the next try."""
+        pool = self.proxy_pool
         return pool is not None and any(entry.is_available for entry in pool.list())
 
     def _wait_out_quota(self, wait: float) -> bool:
@@ -939,13 +919,6 @@ class MegaDownloader:
             all_chunks=all_chunks,
         )
 
-    @retry(
-        retry=retry_if_exception(_is_transient_chunk_failure),
-        stop=stop_after_attempt(8) | _StopWhenDownloadStopped(),
-        wait=wait_exponential(multiplier=2, min=2, max=30),
-        sleep=_sleep_unless_stopped,
-        reraise=True,
-    )
     def _download_chunk(
         self,
         chunk: Chunk,
@@ -959,17 +932,30 @@ class MegaDownloader:
         The retry policy is declared here; the per-attempt body lives in
         `download_transport.fetch_chunk`.
         """
-        _worker.stop_event = self._stop_event
-        # Changing route is not a fault: a proxy that failed is benched by the
-        # router and the chunk retried at once, outside the retry budget. The
-        # loop ends because every proxy a worker gives up on is banned or
-        # excluded, an exhausted pool sends it direct, and a refused direct
-        # attempt either waits for the quota or raises.
-        while True:
+        for attempt in range(CHUNK_RETRY_ATTEMPTS):
             try:
-                fetch_chunk(self, chunk, aes_key, nonce, destination, state)
-                return
-            except RouteAgain:
+                # Changing route is not a fault: a proxy that failed is benched
+                # by the router and the chunk retried at once, outside the retry
+                # budget. The loop ends because every proxy a worker gives up on
+                # is banned or excluded, an exhausted pool sends it direct, and
+                # a refused direct attempt either waits for the quota or raises.
+                while True:
+                    try:
+                        fetch_chunk(self, chunk, aes_key, nonce, destination, state)
+                        return
+                    except RouteAgain:
+                        if self._stop_event.is_set():
+                            return
+            except Exception as exc:
+                if (
+                    not _is_transient_chunk_failure(exc)
+                    or self._stop_event.is_set()
+                    or attempt + 1 >= CHUNK_RETRY_ATTEMPTS
+                ):
+                    raise
+                delay = _chunk_retry_delay(attempt)
+                if delay > 0:
+                    self._stop_event.wait(delay)
                 if self._stop_event.is_set():
                     return
 

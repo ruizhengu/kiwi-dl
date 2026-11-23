@@ -59,7 +59,7 @@ def _redacted_argv(argv: list[str]) -> list[str]:
 def _startup_args_for_log() -> list[str]:
     """Return process args only when this process looks like the CLI itself."""
     argv0 = str(sys.argv[0]).replace("\\", "/").rsplit("/", 1)[-1].lower()
-    cli_names = {"kiwi-dl", "kdl", "__main__.py"}
+    cli_names = {"kiwi-dl", "kiwi-dl.exe", "kdl", "kdl.exe", "__main__.py"}
     if argv0 in cli_names:
         return _redacted_argv(sys.argv[1:])
     return []

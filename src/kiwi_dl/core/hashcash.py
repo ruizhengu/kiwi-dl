@@ -19,8 +19,7 @@ the easiness, then repeat the request with
 This is the format MEGA's own clients use (its C++ SDK and its web client).
 
 The search runs on threads (``hashlib`` releases the GIL while it hashes, so
-they really do run in parallel). An external solver can be plugged in through
-``KIWI_DL_HASHCASH_SOLVER``; nothing ships one.
+they really do run in parallel).
 
 Written for kiwi-dl from the protocol description above. It contains no
 MegaBasterd code (see ATTRIBUTION.md).
@@ -31,9 +30,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import os
-import re
-import subprocess
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -60,30 +56,12 @@ MAX_TOKEN_B64_CHARS = 128
 # of its own per-request budget, so this is an upper bound, not a promise.
 DEFAULT_TIMEOUT_S = 30.0
 
-# Extra time an external solver gets past its own deadline to report back
-# before it is killed.
-NATIVE_TIMEOUT_MARGIN_S = 5.0
-
 DEFAULT_WORKERS = 8
 MAX_WORKERS = 32
 
 # How often the main thread wakes while the workers search, so a deadline or a
 # Ctrl-C is noticed promptly.
 _POLL_INTERVAL_S = 0.5
-
-# --- External solver contract ------------------------------------------------
-#
-# KIWI_DL_HASHCASH_SOLVER names an executable. It is run as
-#     <solver> <easiness> <token as 96 hex chars> <workers> <timeout in ms>
-# and must print the 4-byte prefix as 8 hex digits on a line of its own.
-# Exit code 2 means "not solved in time"; any other failure falls back to the
-# built-in search. KIWI_DL_HASHCASH_NATIVE=0 (or false/no/off) ignores it.
-
-_SOLVER_ENV = "KIWI_DL_HASHCASH_SOLVER"
-_SOLVER_SWITCH_ENV = "KIWI_DL_HASHCASH_NATIVE"
-_SWITCH_OFF = frozenset({"0", "false", "n", "no", "off"})
-_SOLVER_GAVE_UP = 2
-_HEX_PREFIX = re.compile(r"[0-9a-fA-F]{8}")  # PREFIX_BYTES as hex
 
 
 class HashcashError(ValueError):
@@ -209,20 +187,12 @@ def solve(
 ) -> bytes:
     """Find a 4-byte prefix that solves ``challenge`` within ``timeout`` seconds.
 
-    Tries the external solver first if one is configured, then searches on
-    ``workers`` threads. The timeout covers both. Raises TimeoutError if
-    nothing is found in time.
+    Searches on ``workers`` threads. Raises TimeoutError if nothing is found
+    in time.
     """
     deadline = time.monotonic() + timeout
     workers = _clamp_workers(workers)
     token_repeated = challenge.token * REPEAT
-
-    prefix = _solve_with_native(challenge, timeout=timeout, workers=workers)
-    if prefix is not None:
-        if _check_nonce(prefix, token_repeated, challenge.threshold):
-            return prefix
-        log.warning("The external hashcash solver returned a prefix that does not verify")
-
     if time.monotonic() >= deadline:
         raise TimeoutError("The hashcash challenge could not be solved in time")
     return _search(token_repeated, challenge.threshold, deadline, workers)
@@ -273,74 +243,3 @@ def _search(token_repeated: bytes, threshold: int, deadline: float, workers: int
         if error is not None:
             raise error
     raise TimeoutError("The hashcash challenge could not be solved in time")
-
-
-# --- External solver ---------------------------------------------------------
-
-
-def _native_solver_path() -> str | None:
-    if os.environ.get(_SOLVER_SWITCH_ENV, "").strip().lower() in _SWITCH_OFF:
-        return None
-    configured = os.environ.get(_SOLVER_ENV, "").strip()
-    if not configured:
-        return None
-    path = os.path.expanduser(configured)
-    return path if os.path.isfile(path) else None
-
-
-def _prefix_from_output(stdout: str) -> bytes | None:
-    """The last line of the solver's output that is exactly 8 hex digits."""
-    for line in reversed(stdout.splitlines()):
-        text = line.strip()
-        if _HEX_PREFIX.fullmatch(text):
-            return bytes.fromhex(text)
-    return None
-
-
-def _solve_with_native(challenge: HashcashChallenge, timeout: float, workers: int) -> bytes | None:
-    """Run the external solver, if one is configured.
-
-    Returns the prefix it printed (unverified), or None when there is no solver
-    or it failed in a way the built-in search can recover from. Raises
-    TimeoutError when the solver says, or shows by overrunning, that the time
-    is gone.
-    """
-    solver = _native_solver_path()
-    if solver is None:
-        return None
-
-    argv = [
-        solver,
-        str(challenge.easiness),
-        challenge.token.hex(),
-        str(_clamp_workers(workers)),
-        str(max(1, int(timeout * 1000))),
-    ]
-    try:
-        result = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=timeout + NATIVE_TIMEOUT_MARGIN_S,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise TimeoutError("The external hashcash solver timed out") from exc
-    except OSError as exc:
-        log.debug("Could not start the external hashcash solver %s: %s", solver, exc)
-        return None
-
-    if result.returncode == _SOLVER_GAVE_UP:
-        raise TimeoutError("The hashcash challenge could not be solved in time")
-    if result.returncode != 0:
-        log.debug(
-            "The external hashcash solver exited with code %d: %s",
-            result.returncode,
-            result.stderr.strip(),
-        )
-        return None
-
-    prefix = _prefix_from_output(result.stdout)
-    if prefix is None:
-        log.warning("The external hashcash solver printed no 8-hex-digit prefix")
-    return prefix

@@ -35,14 +35,14 @@ fail() {
 case "$(uname -s)" in
   Darwin) os="macOS $(sw_vers -productVersion 2>/dev/null || true)" ;;
   Linux) os="Linux" ;;
-  *) fail "kiwi-dl supports macOS and Linux only." ;;
+  *) fail "install.sh is for macOS and Linux. On Windows, use install.ps1 in PowerShell." ;;
 esac
 
 printf '%s%skiwi-dl%s installer\n' "$bold" "$cyan" "$reset"
 note "⚙ ${os% } · $(uname -m)"
 if [ -z "${KIWI_DL_SOURCE:-}" ]; then
   if [ "$REF" = main ]; then
-    note "Installing the latest main; pass a release tag, such as v0.1.0, to pin one."
+    note "Installing the latest main; pass a release tag, such as v0.2.0, to pin one."
   else
     note "Installing ${REF}."
   fi

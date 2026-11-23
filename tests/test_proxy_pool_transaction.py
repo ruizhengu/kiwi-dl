@@ -65,8 +65,7 @@ def _run(args, *, catch=False):
 
 def _child(data_dir: Path, body: str) -> subprocess.CompletedProcess:
     """Run a proxy mutation in a genuinely separate process."""
-    script = textwrap.dedent(
-        f"""
+    script = textwrap.dedent(f"""
         import sys
         sys.path.insert(0, {REPO_SRC!r})
         from pathlib import Path
@@ -74,8 +73,7 @@ def _child(data_dir: Path, body: str) -> subprocess.CompletedProcess:
         import kiwi_dl.commands.proxy_cmd as pc
         rt.data_dir = lambda: Path({str(data_dir)!r})
         {textwrap.indent(textwrap.dedent(body), "        ").lstrip()}
-        """
-    )
+        """)
     # The children print through rich like the real CLI does, and the real
     # CLI reconfigures its streams to UTF-8; on Windows a pipe would
     # otherwise default to cp1252 and choke on the ✓ glyph.
@@ -131,8 +129,7 @@ def test_two_processes_adding_different_proxies_keep_both(pool_dir, tmp_path):
                 [
                     sys.executable,
                     "-c",
-                    textwrap.dedent(
-                        f"""
+                    textwrap.dedent(f"""
                         import sys
                         sys.path.insert(0, {REPO_SRC!r})
                         from pathlib import Path
@@ -149,8 +146,7 @@ def test_two_processes_adding_different_proxies_keep_both(pool_dir, tmp_path):
                             ),
                             "                        ",
                         ).lstrip()}
-                        """
-                    ),
+                        """),
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

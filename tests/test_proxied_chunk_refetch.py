@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 
 import pytest
-from tenacity import wait_none
 
 from kiwi_dl.core import downloader as dl_mod
 from kiwi_dl.core.chunks import iter_chunks
@@ -43,7 +42,7 @@ OFFSETS = [c.offset for c in iter_chunks(SIZE)]  # 7 chunks
 
 @pytest.fixture(autouse=True)
 def _quiet_retries(monkeypatch):
-    monkeypatch.setattr(MegaDownloader._download_chunk.retry, "wait", wait_none())
+    monkeypatch.setattr(dl_mod, "_chunk_retry_delay", lambda attempt: 0.0)
     monkeypatch.setattr(dl_mod, "_local_route_fingerprint", lambda: "10.0.0.5")
     monkeypatch.setattr(
         "kiwi_dl.proxy.smart_proxy.random.choices", lambda pop, weights, k: [pop[0]]

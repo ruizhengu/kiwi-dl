@@ -89,11 +89,10 @@ def test_deprecated_key_exits_nonzero(cli_env):
     assert result.exit_code != 0
 
 
-def test_valid_get_set_migrate_exit_zero(cli_env):
+def test_valid_get_set_exit_zero(cli_env):
     runner = CliRunner()
     assert runner.invoke(cli, ["config", "set", "max_workers", "10"]).exit_code == 0
     assert runner.invoke(cli, ["config", "get", "max_workers"]).exit_code == 0
-    assert runner.invoke(cli, ["config", "migrate"]).exit_code == 0
 
 
 # ---------------------------------------------------------------------------

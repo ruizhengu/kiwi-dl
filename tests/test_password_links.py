@@ -4,11 +4,9 @@ import os
 
 import pytest
 
-from kiwi_dl.core.crypto import (
-    decrypt_password_link,
-    encrypt_password_link,
-)
+from kiwi_dl.core.crypto import decrypt_password_link
 from kiwi_dl.core.links import LinkType, parse_link, resolve_password_link
+from tests.fake_mega import encrypt_password_link
 
 
 def test_password_link_roundtrip_file():

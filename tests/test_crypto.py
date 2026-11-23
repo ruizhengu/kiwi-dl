@@ -5,15 +5,14 @@ import os
 from kiwi_dl.core.crypto import (
     a32_to_bytes,
     aes_cbc_decrypt,
-    aes_cbc_encrypt,
     b64_url_decode,
     b64_url_encode,
     bytes_to_a32,
     decrypt_attributes,
     make_ctr_cipher,
-    pack_file_key,
     unpack_file_key,
 )
+from tests.fake_mega import aes_cbc_encrypt, pack_file_key
 
 
 def test_a32_roundtrip():

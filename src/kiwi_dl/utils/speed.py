@@ -81,13 +81,6 @@ class TokenBucket:
         self._last = self._clock()
         self._lock = threading.Lock()
 
-    def set_rate(self, rate: float) -> None:
-        with self._lock:
-            self.rate = float(rate)
-            self.burst = max(self.burst, self.rate)
-            # Never leave more tokens than the bucket can hold.
-            self._tokens = min(self._tokens, self.burst)
-
     def consume(self, amount: int, stop: threading.Event | None = None) -> None:
         """Block until `amount` tokens (bytes) have been drained, returning at
         once when `stop` is set.
@@ -130,7 +123,4 @@ class NoOpLimiter:
     """No-op limiter when rate limiting is disabled."""
 
     def consume(self, amount: int, stop: threading.Event | None = None) -> None:
-        pass
-
-    def set_rate(self, rate: float) -> None:
         pass

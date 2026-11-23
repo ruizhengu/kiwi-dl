@@ -353,98 +353,62 @@ def download(
     # parallel files, and file-in-folder links share this controller; each
     # full folder link gets its own controller (its manifest defines it).
     if file_jobs or folder_file_jobs:
-        progress = TransferProgress(title="", direction="download", quiet=quiet)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _run_batch(jobs, runner, *, allow_parallel: bool, label: str) -> int:
+            if not jobs:
+                return 0
+            if not allow_parallel or parallel == 1 or len(jobs) == 1:
+                return sum(0 if runner(job) else 1 for job in jobs)
+            batch_failures = 0
+            with ThreadPoolExecutor(max_workers=parallel) as pool:
+                futs = [pool.submit(runner, job) for job in jobs]
+                for f in as_completed(futs):
+                    try:
+                        if not f.result():
+                            batch_failures += 1
+                    except Exception as e:  # noqa: BLE001
+                        log.error("Parallel %s failed: %s", label, e)
+                        batch_failures += 1
+            return batch_failures
+
+        progress = TransferProgress(title="", quiet=quiet)
         with progress:
-            # Process file jobs in parallel slots
-            if file_jobs:
-                if parallel == 1 or len(file_jobs) == 1:
-                    for url, rename_to in file_jobs:
-                        failures += (
-                            0
-                            if _download_file(
-                                _new_downloader(),
-                                url,
-                                output_dir,
-                                progress,
-                                password=password,
-                                rename_to=rename_to,
-                                machine=machine,
-                                run_command=cfg.run_command,
-                                quota_stops=quota_stops,
-                                tally=tally,
-                            )
-                            else 1
-                        )
-                else:
-                    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-                    def _run(job):
-                        url, rename_to = job
-                        return _download_file(
-                            _new_downloader(),
-                            url,
-                            output_dir,
-                            progress,
-                            password=password,
-                            rename_to=rename_to,
-                            machine=machine,
-                            run_command=cfg.run_command,
-                            quota_stops=quota_stops,
-                            tally=tally,
-                        )
-
-                    with ThreadPoolExecutor(max_workers=parallel) as pool:
-                        futs = [pool.submit(_run, job) for job in file_jobs]
-                        for f in as_completed(futs):
-                            try:
-                                if not f.result():
-                                    failures += 1
-                            except Exception as e:  # noqa: BLE001
-                                log.error("Parallel download failed: %s", e)
-                                failures += 1
-
-            if folder_file_jobs:
-                # Interactive selection must prompt from the main thread, so
-                # --select forces these jobs to run sequentially.
-                if parallel == 1 or select_files or len(folder_file_jobs) == 1:
-                    for url in folder_file_jobs:
-                        outcome = _download_folder_file(
-                            _new_downloader(),
-                            url,
-                            output_dir,
-                            progress,
-                            file_filter=folder_file_filter,
-                            machine=machine,
-                            run_command=cfg.run_command,
-                            quota_stops=quota_stops,
-                            tally=tally,
-                        )
-                        failures += 0 if outcome else 1
-                else:
-                    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-                    def _run_folder_file(url):
-                        return _download_folder_file(
-                            _new_downloader(),
-                            url,
-                            output_dir,
-                            progress,
-                            file_filter=folder_file_filter,
-                            machine=machine,
-                            run_command=cfg.run_command,
-                            quota_stops=quota_stops,
-                            tally=tally,
-                        )
-
-                    with ThreadPoolExecutor(max_workers=parallel) as pool:
-                        futs = [pool.submit(_run_folder_file, url) for url in folder_file_jobs]
-                        for f in as_completed(futs):
-                            try:
-                                if not f.result():
-                                    failures += 1
-                            except Exception as e:  # noqa: BLE001
-                                log.error("Parallel folder-file download failed: %s", e)
-                                failures += 1
+            failures += _run_batch(
+                file_jobs,
+                lambda job: _download_file(
+                    _new_downloader(),
+                    job[0],
+                    output_dir,
+                    progress,
+                    password=password,
+                    rename_to=job[1],
+                    machine=machine,
+                    run_command=cfg.run_command,
+                    quota_stops=quota_stops,
+                    tally=tally,
+                ),
+                allow_parallel=True,
+                label="download",
+            )
+            # Interactive selection must prompt from the main thread, so
+            # --select forces folder-file jobs to run sequentially.
+            failures += _run_batch(
+                folder_file_jobs,
+                lambda url: _download_folder_file(
+                    _new_downloader(),
+                    url,
+                    output_dir,
+                    progress,
+                    file_filter=folder_file_filter,
+                    machine=machine,
+                    run_command=cfg.run_command,
+                    quota_stops=quota_stops,
+                    tally=tally,
+                ),
+                allow_parallel=not select_files,
+                label="folder-file download",
+            )
 
     # Folder jobs get one controller each (their manifests define the rows).
     for url in folder_jobs:

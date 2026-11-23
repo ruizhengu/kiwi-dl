@@ -83,10 +83,6 @@ class TransferCancelled(NonRetryableTransferError):  # noqa: N818 - a decision, 
     """
 
 
-class AuthError(MegaError):
-    """Authentication / session-related error."""
-
-
 class QuotaError(MegaError):
     """Quota exceeded."""
 
@@ -134,8 +130,6 @@ def raise_for_code(code: int) -> None:
     """Raise the most appropriate MegaError subclass for an API error code."""
     if code >= 0:
         return
-    if code in (-15,):
-        raise AuthError(code)
     if code in (-4,):
         raise RateLimitError(code)
     if code in (-17, -24):

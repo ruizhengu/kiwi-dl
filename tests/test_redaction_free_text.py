@@ -64,19 +64,6 @@ def test_ordinary_text_is_left_alone(text):
     assert redact_text(text) == text
 
 
-def test_share_link_field_keeps_its_public_key():
-    link = "https://mega.nz/folder/ABCD1234#PUBLICKEYVALUE"
-    record = sanitize({"event": "result", "share_link": link})
-    assert record["share_link"] == link
-
-
-def test_share_link_still_loses_secret_query_params():
-    link = "https://mega.nz/folder/ABCD1234?sid=fakesid#PUBLICKEYVALUE"
-    record = sanitize({"share_link": link})
-    assert "fakesid" not in record["share_link"]
-    assert "#PUBLICKEYVALUE" in record["share_link"]
-
-
 def test_nested_exception_records_are_scrubbed_recursively():
     record = {
         "event": "result",

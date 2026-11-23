@@ -177,5 +177,5 @@ def test_parallel_workers_forward_auto_resume_and_user_agent(monkeypatch, tmp_pa
 
 def test_parallel_workers_share_the_parent_limiter_object(monkeypatch, tmp_path: Path):
     """`limiter` is allow-listed above, so pin its behaviour here instead."""
-    parent, worker = _run_parallel_worker(monkeypatch, tmp_path)
-    assert worker.limiter is parent.limiter
+    parent, _worker = _run_parallel_worker(monkeypatch, tmp_path)
+    assert _RecordingDownloader.calls[0]["limiter"] is parent.limiter

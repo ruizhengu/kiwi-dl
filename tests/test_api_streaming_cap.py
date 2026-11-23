@@ -62,7 +62,6 @@ class _Session:
 def _client(response) -> MegaAPIClient:
     client = MegaAPIClient(timeout=1)
     client._session = _Session(response)
-    client.set_session("fake-sid")
     return client
 
 

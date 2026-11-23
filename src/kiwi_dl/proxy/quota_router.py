@@ -44,7 +44,7 @@ from urllib.parse import urlsplit
 
 from ..core.errors import format_time_left
 from ..utils.redaction import redact_text
-from .selector import ProxyRequiredError
+from .smart_proxy import ProxyRequiredError
 
 log = logging.getLogger(__name__)
 

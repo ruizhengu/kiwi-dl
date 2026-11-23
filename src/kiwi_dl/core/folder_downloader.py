@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..utils.helpers import ensure_within_directory, sanitize_filename
-from .crypto import a32_to_bytes, bytes_to_a32, str_to_a32
+from .crypto import a32_to_bytes, bytes_to_a32, str_to_a32, unpack_file_key
 from .downloader import DownloadProgress, DownloadResult, MegaDownloader
 from .errors import NonRetryableTransferError, TransferError, TransferQuotaError
 from .links import LinkType, parse_link, require_link_key
@@ -73,13 +73,7 @@ class MegaFolderDownloader:
         if parsed.type not in (LinkType.FOLDER, LinkType.FOLDER_IN_FOLDER):
             raise ValueError(f"Link is not a folder share: {parsed.type}")
 
-        folder_key = a32_to_bytes(str_to_a32(require_link_key(parsed, "folder download")))
-        listing = self.api.get_public_folder_listing(parsed.public_id)
-        raw_nodes = listing.get("f", [])
-
-        nodes = self._decrypt_folder_nodes(raw_nodes, folder_key)
-        if not nodes:
-            raise TransferError(message="No nodes returned for folder share")
+        nodes = self._fetch_folder_nodes(parsed)
 
         root_handle = (
             parsed.subpath
@@ -129,6 +123,14 @@ class MegaFolderDownloader:
             )
         return selected
 
+    def _fetch_folder_nodes(self, parsed) -> list[FolderNode]:
+        folder_key = a32_to_bytes(str_to_a32(require_link_key(parsed, "folder download")))
+        listing = self.api.get_public_folder_listing(parsed.public_id)
+        nodes = self._decrypt_folder_nodes(listing.get("f", []), folder_key)
+        if not nodes:
+            raise TransferError(message="No nodes returned for folder share")
+        return nodes
+
     def download_node_in_folder(
         self,
         url: str,
@@ -148,11 +150,7 @@ class MegaFolderDownloader:
         if parsed.type != LinkType.FILE_IN_FOLDER or not parsed.subpath:
             raise ValueError(f"Link is not a node inside a folder share: {parsed.type}")
 
-        folder_key = a32_to_bytes(str_to_a32(require_link_key(parsed, "folder download")))
-        listing = self.api.get_public_folder_listing(parsed.public_id)
-        nodes = self._decrypt_folder_nodes(listing.get("f", []), folder_key)
-        if not nodes:
-            raise TransferError(message="No nodes returned for folder share")
+        nodes = self._fetch_folder_nodes(parsed)
 
         target = next((n for n in nodes if n.handle == parsed.subpath), None)
         if target is None:
@@ -199,7 +197,24 @@ class MegaFolderDownloader:
         failures: list[str] = []
         errors: list[Exception] = []
 
-        def _report_failure(destination: Path, exc: Exception) -> None:
+        def _make_progress(destination: Path) -> Callable[[DownloadProgress], None]:
+            def _progress(progress: DownloadProgress) -> None:
+                if on_file_progress:
+                    on_file_progress(destination, progress)
+                if on_progress:
+                    on_progress(progress)
+
+            return _progress
+
+        def _record_success(result: DownloadResult) -> None:
+            results.append(result)
+            if on_file_done:
+                on_file_done(result)
+
+        def _record_failure(node: FolderNode, destination: Path, exc: Exception) -> None:
+            log.error("Failed to download %s: %s", node.name, exc)
+            failures.append(f"{node.name}: {exc}")
+            errors.append(exc)
             if on_file_failed:
                 try:
                     on_file_failed(destination, exc)
@@ -210,74 +225,25 @@ class MegaFolderDownloader:
             for node, destination in file_jobs:
                 log.info("Downloading folder file: %s", destination)
                 try:
-
-                    def _progress(progress: DownloadProgress, path: Path = destination) -> None:
-                        if on_file_progress:
-                            on_file_progress(path, progress)
-                        if on_progress:
-                            on_progress(progress)
-
                     result = self._download_owned_file(
-                        folder_public_id, node, destination, _progress
+                        folder_public_id, node, destination, _make_progress(destination)
                     )
-                    results.append(result)
-                    if on_file_done:
-                        on_file_done(result)
+                    _record_success(result)
                 except Exception as e:  # noqa: BLE001
-                    log.error("Failed to download %s: %s", node.name, e)
-                    failures.append(f"{node.name}: {e}")
-                    errors.append(e)
-                    _report_failure(destination, e)
+                    _record_failure(node, destination, e)
         else:
-            # Multiple files downloading in parallel: each worker gets its own
-            # downloader (per-transfer CDN URL/generation state) AND its own
-            # cloned API client. One MegaAPIClient owns one mutable
-            # requests.Session and sequence counter, so it must belong to
-            # exactly one concurrent transfer; within a transfer, chunk
-            # threads only reach the API through `_refresh_url`, which is
-            # serialized by the downloader's `_url_refresh_lock`.
-            from .downloader import MegaDownloader
-
-            def _worker(job):
+            # Each parallel worker gets its own cloned API client and downloader
+            # so mutable HTTP/sequence/CDN-URL state is never shared across
+            # concurrent files, while the thread-safe proxy pool, policy, and
+            # aggregate speed limiter are shared.
+            def _worker(job: tuple[FolderNode, Path]) -> DownloadResult:
                 node, destination = job
                 worker_api = self.api.clone()
-                # Every MegaDownloader option must be mirrored here, or the
-                # parallel path silently behaves differently from the
-                # sequential one (--no-resume was ignored, a custom user agent
-                # was replaced by the default). Only `api` (per-worker clone),
-                # `speed_limit_kbps` (superseded by the shared limiter, which
-                # must not be multiplied per worker) and `limiter` (assigned
-                # just below) differ on purpose; a test asserts the rest
-                # against the constructor signature.
-                worker_dl = MegaDownloader(
-                    api=worker_api,
-                    max_workers=self.downloader.max_workers,
-                    speed_limit_kbps=0,
-                    verify_integrity=self.downloader.verify_integrity,
-                    timeout=self.downloader.timeout,
-                    proxies=self.downloader.proxies,
-                    proxy_pool=self.downloader.proxy_pool,
-                    force_proxy=self.downloader.force_proxy,
-                    quota_wait_seconds=self.downloader.quota_wait_seconds,
-                    quota_max_wait_loops=self.downloader.quota_max_wait_loops,
-                    keep_state_files_on_error=self.downloader.keep_state_files_on_error,
-                    overwrite=self.downloader.overwrite,
-                    auto_resume=self.downloader.auto_resume,
-                    user_agent=self.downloader.user_agent,
-                    smart_proxy=self.downloader.smart_proxy,
-                )
-                worker_dl.limiter = self.downloader.limiter
+                worker_dl = self.downloader.clone(api=worker_api)
                 sub_folder = MegaFolderDownloader(worker_dl)
-
-                def _progress(progress: DownloadProgress, path: Path = destination) -> None:
-                    if on_file_progress:
-                        on_file_progress(path, progress)
-                    if on_progress:
-                        on_progress(progress)
-
                 try:
                     return sub_folder._download_owned_file(
-                        folder_public_id, node, destination, _progress
+                        folder_public_id, node, destination, _make_progress(destination)
                     )
                 finally:
                     worker_api.close()
@@ -287,15 +253,9 @@ class MegaFolderDownloader:
                 for fut in as_completed(futures):
                     node, destination = futures[fut]
                     try:
-                        result = fut.result()
-                        results.append(result)
-                        if on_file_done:
-                            on_file_done(result)
+                        _record_success(fut.result())
                     except Exception as e:  # noqa: BLE001
-                        log.error("Failed to download %s: %s", node.name, e)
-                        failures.append(f"{node.name}: {e}")
-                        errors.append(e)
-                        _report_failure(destination, e)
+                        _record_failure(node, destination, e)
 
         if failures:
             sample = "; ".join(failures[:3])
@@ -528,8 +488,6 @@ class MegaFolderDownloader:
         if "g" not in info:
             raise TransferError(message=f"No download URL for {node.name}")
 
-        from .crypto import unpack_file_key
-
         if node.raw_key_a32 is None:
             raise TransferError(message=f"No decryption key for {node.name}")
         aes_key, nonce, mac_iv_a32 = unpack_file_key(node.raw_key_a32)
@@ -557,35 +515,3 @@ class MegaFolderDownloader:
             on_progress=on_progress,
             url_resolver=_resolver,
         )
-
-    def download_file_in_folder(
-        self,
-        url: str,
-        output_dir: Path,
-        on_progress: Callable[[DownloadProgress], None] | None = None,
-    ) -> DownloadResult:
-        """Download one file from a public folder while preserving its path.
-
-        Compatibility surface retained for the 1.x series.
-        """
-        parsed = parse_link(url)
-        if parsed.type != LinkType.FILE_IN_FOLDER or not parsed.subpath:
-            raise ValueError(f"Link is not a file inside a folder share: {parsed.type}")
-
-        folder_key = a32_to_bytes(str_to_a32(require_link_key(parsed, "folder download")))
-        listing = self.api.get_public_folder_listing(parsed.public_id)
-        nodes = self._decrypt_folder_nodes(listing.get("f", []), folder_key)
-        if not nodes:
-            raise TransferError(message="No nodes returned for folder share")
-
-        target = next(
-            (n for n in nodes if n.handle == parsed.subpath and n.is_file),
-            None,
-        )
-        if target is None:
-            raise TransferError(message=f"File {parsed.subpath!r} not found in folder share")
-
-        root_handle = self._find_folder_root(nodes)
-        destination = self._local_path_for_node(nodes, output_dir, root_handle, target)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        return self._download_owned_file(parsed.public_id, target, destination, on_progress)

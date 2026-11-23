@@ -194,16 +194,6 @@ def parse_link(url: str) -> ParsedLink:
     raise ValueError(f"Not a recognizable MEGA link: {url!r}")
 
 
-def is_mega_url(url: str) -> bool:
-    """Quick check whether a URL looks like a MEGA link of any supported flavour."""
-    try:
-        parsed = urlparse(url)
-    except Exception:
-        return False
-    host = parsed.netloc.lower()
-    return host.endswith("mega.nz") or host.endswith("mega.co.nz")
-
-
 def resolve_password_link(parsed: ParsedLink, password: str) -> ParsedLink:
     """Convert a password-protected ParsedLink into a normal file/folder link."""
     from .crypto import b64_url_encode, decrypt_password_link
@@ -287,27 +277,9 @@ def require_link_key(parsed, what: str) -> str:
     return key
 
 
-def normalize_link(url: str) -> str:
-    """Return the link in modern format if possible."""
-    p = parse_link(url)
-    if p.type == LinkType.FILE:
-        base = f"https://mega.nz/file/{p.public_id}"
-        return f"{base}#{p.key}" if p.key else base
-    if p.type == LinkType.FOLDER:
-        base = f"https://mega.nz/folder/{p.public_id}"
-        return f"{base}#{p.key}" if p.key else base
-    if p.type == LinkType.FILE_IN_FOLDER:
-        return f"https://mega.nz/folder/{p.public_id}#{p.key}/file/{p.subpath}"
-    if p.type == LinkType.FOLDER_IN_FOLDER:
-        return f"https://mega.nz/folder/{p.public_id}#{p.key}/folder/{p.subpath}"
-    return url
-
-
 __all__ = [
     "LinkType",
     "ParsedLink",
-    "is_mega_url",
-    "normalize_link",
     "parse_link",
     "require_link_key",
     "resolve_password_link",
