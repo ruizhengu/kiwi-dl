@@ -20,10 +20,9 @@ import threading
 import uuid
 from dataclasses import dataclass
 
-from ..utils.redaction import redact_link  # re-exported for existing imports
 from .progress import MultiFileProgressView, ProgressFileState
 
-__all__ = ["TransferProgress", "redact_link", "TERMINAL_STATUSES"]
+__all__ = ["TransferProgress", "TERMINAL_STATUSES"]
 
 TERMINAL_STATUSES = {"complete", "failed", "canceled", "skipped"}
 
@@ -31,7 +30,6 @@ TERMINAL_STATUSES = {"complete", "failed", "canceled", "skipped"}
 @dataclass
 class _Item:
     key: str
-    direction: str  # "download" | "upload"
     state: ProgressFileState
 
 
@@ -46,30 +44,18 @@ class TransferProgress:
     def __init__(
         self,
         title: str,
-        direction: str = "download",
-        details: list[str] | None = None,
-        item_label: str = "files",
         quiet: bool = False,
         view_factory=None,
     ) -> None:
         self.title = title
-        self.direction = direction
         self.quiet = quiet
-        self._details = list(details or [])
-        self._item_label = item_label
         self._items: dict[str, _Item] = {}
         self._order: list[str] = []
         self._lock = threading.RLock()
         self._closed = False
         self._final_success: bool | None = None  # Set exactly once by close()
         self._view: MultiFileProgressView | None = None
-        self._view_factory = view_factory or (
-            lambda: MultiFileProgressView(
-                title=self.title,
-                details=self._details,
-                item_label=self._item_label,
-            )
-        )
+        self._view_factory = view_factory or (lambda: MultiFileProgressView(title=self.title))
 
     # ------------------------------------------------------------------
     # Item lifecycle
@@ -78,23 +64,16 @@ class TransferProgress:
         self,
         name: str,
         total: int | None = None,
-        direction: str | None = None,
         status: str = "queued",
     ) -> str:
         """Register one transfer item; returns its key."""
         with self._lock:
             key = uuid.uuid4().hex[:16]
-            item_direction = direction or self.direction
-            display = name
-            if item_direction != self.direction or self.direction == "mixed":
-                arrow = "↑" if item_direction == "upload" else "↓"
-                display = f"{arrow} {name}"
             self._items[key] = _Item(
                 key=key,
-                direction=item_direction,
                 state=ProgressFileState(
                     key=key,
-                    name=display,
+                    name=name,
                     completed=0,
                     total=int(total) if total is not None else None,
                     speed=0.0,
@@ -172,7 +151,7 @@ class TransferProgress:
             completed_items=done_items,
             total_items=total_items,
             failed_items=failed_items,
-            status=status or ("Uploading" if self.direction == "upload" else "Downloading"),
+            status=status or "Downloading",
             force=force,
         )
 
@@ -238,10 +217,6 @@ class TransferProgress:
     def statuses(self) -> dict[str, str]:
         with self._lock:
             return {k: self._items[k].state.status for k in self._order}
-
-    def failed_count(self) -> int:
-        with self._lock:
-            return sum(1 for i in self._items.values() if i.state.status == "failed")
 
     def final_success(self) -> bool | None:
         """Overall outcome computed by close(); None while still open."""

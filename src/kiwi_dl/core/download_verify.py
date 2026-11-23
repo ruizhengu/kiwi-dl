@@ -7,8 +7,8 @@ actually succeed", kept apart from the transfer machinery that uses them:
   chunk plan is built.
 * `is_usable_download_state` - whether a state file on disk describes this
   exact transfer and may be resumed.
-* `verify_file_integrity` - whether the bytes ON DISK combine to the MAC
-  embedded in the file key (`_verify_file_on_disk` does the reading).
+* `_verify_file_on_disk` - whether the bytes ON DISK combine to the MAC
+  embedded in the file key.
 
 None of these touch the network, the thread pool, or the destination claim.
 """
@@ -33,16 +33,9 @@ from .state import TransferState
 
 log = logging.getLogger(__name__)
 
-_NONCE_BYTES = 8  # a MEGA file nonce; `chunk_mac` uses `nonce + nonce` as the CBC IV
-
 
 class DeclaredSizeError(NonRetryableTransferError):
-    """The remote declared a file size we refuse to plan a transfer around.
-
-    The size is not a fact, it is a claim: for a `mc://` link it comes from a
-    server the LINK chose. Retrying cannot change the answer, hence
-    non-retryable.
-    """
+    """The remote declared a file size we refuse to plan a transfer around."""
 
 
 class InsufficientDiskSpaceError(NonRetryableTransferError):
@@ -138,10 +131,6 @@ def _verify_file_on_disk(
     which is the point of that flag; the cost is one sequential read pass, small
     beside the download it follows. Any read short of a chunk's length -
     truncation, a missing file - fails closed.
-
-    The transfer code calls this directly with the nonce it already holds;
-    `verify_file_integrity` is the 1.x-compatible wrapper that pulls the nonce
-    and destination out of the resume state.
     """
     macs: list[bytes] = []
     try:
@@ -166,37 +155,3 @@ def _verify_file_on_disk(
         return False
     condensed = condense_mac(combine_chunk_macs(macs, aes_key))
     return condensed[0] == mac_iv_a32[0] and condensed[1] == mac_iv_a32[1]
-
-
-def verify_file_integrity(
-    state: TransferState,
-    all_chunks: list[Chunk],
-    aes_key: bytes,
-    mac_iv_a32: list[int],
-) -> bool:
-    """Verify the downloaded file against the MAC embedded in its key.
-
-    Kept at its 1.x signature. It now checks the bytes ON DISK rather than the
-    MACs stored in `state` (see `_verify_file_on_disk` for why), taking the
-    nonce and destination the disk check needs from the resume state, which
-    records both. Fails closed if the state does not carry a usable nonce.
-    """
-    nonce_hex = (state.metadata or {}).get("nonce")
-    if not nonce_hex:
-        log.error("Integrity check: resume state carries no nonce; cannot verify")
-        return False
-    try:
-        nonce = bytes.fromhex(nonce_hex)
-    except (TypeError, ValueError):
-        log.error("Integrity check: resume state nonce is not valid hex")
-        return False
-    # `chunk_mac` uses `nonce + nonce` as the 16-byte CBC IV, so a nonce that is
-    # not 8 bytes would raise a raw crypto error from inside the MAC rather than
-    # fail closed. A valid-hex nonce of the wrong length is exactly the case
-    # `bytes.fromhex` cannot catch.
-    if len(nonce) != _NONCE_BYTES:
-        log.error(
-            "Integrity check: resume state nonce is %d bytes, expected %d", len(nonce), _NONCE_BYTES
-        )
-        return False
-    return _verify_file_on_disk(all_chunks, aes_key, nonce, mac_iv_a32, Path(state.destination))

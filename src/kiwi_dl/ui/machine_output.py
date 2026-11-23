@@ -3,8 +3,8 @@
 In machine mode, stdout carries ONLY structured records (one JSON object per
 line); every human-facing message and progress frame goes to stderr, so a
 machine-mode consumer can parse stdout without scraping UI text. Records never
-contain passwords, keys, SIDs, vault passphrases, or unredacted link keys —
-every field is passed through the central recursive sanitizer first.
+contain passwords, keys, or unredacted link keys — every field is passed
+through the central recursive sanitizer first.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from ..utils.redaction import sanitize
 # free-text messages. Mapped from the internal error class name.
 _ERROR_CODES = {
     "QuotaError": "quota_exceeded",
-    "AuthError": "auth_failed",
     "IntegrityError": "integrity_failed",
     "RateLimitError": "rate_limited",
     "TransferCancelled": "cancelled",
@@ -45,7 +44,7 @@ class MachineOutput:
     emitter keeps writing records to the original stream while all human
     output is routed away from it. Every record is sanitized (recursively)
     and written as one atomic ``dumps(...) + "\\n"`` under a lock, so
-    concurrent download/upload workers can never interleave partial lines.
+    concurrent download workers can never interleave partial lines.
     """
 
     def __init__(self, enabled: bool):

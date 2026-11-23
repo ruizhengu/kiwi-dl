@@ -24,7 +24,6 @@ import threading
 
 import pytest
 from click.testing import CliRunner
-from tenacity import wait_none
 
 from kiwi_dl.cli import cli
 from kiwi_dl.config import Config, validate_config_value
@@ -40,8 +39,7 @@ from kiwi_dl.proxy.quota_router import (
     Route,
     SmartProxyPolicy,
 )
-from kiwi_dl.proxy.selector import ProxyRequiredError
-from kiwi_dl.proxy.smart_proxy import SmartProxyPool
+from kiwi_dl.proxy.smart_proxy import ProxyRequiredError, SmartProxyPool
 from tests.fake_mega import FakeCdn
 
 KiB = 1024
@@ -63,8 +61,8 @@ class Clock:
 
 @pytest.fixture(autouse=True)
 def _no_retry_backoff(monkeypatch):
-    """Exercise routing, not tenacity's wall-clock backoff."""
-    monkeypatch.setattr(MegaDownloader._download_chunk.retry, "wait", wait_none())
+    """Exercise routing, not wall-clock backoff."""
+    monkeypatch.setattr(dl_mod, "_chunk_retry_delay", lambda attempt: 0.0)
 
 
 @pytest.fixture(autouse=True)

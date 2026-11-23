@@ -19,7 +19,7 @@ from rich.console import Group
 from rich.live import Live
 from rich.text import Text
 
-from ..utils.helpers import format_eta
+from ..utils.helpers import format_bytes, format_eta
 from ..utils.speed import RollingSpeedMeter
 from .theme import SYMBOL, make_console
 
@@ -48,13 +48,9 @@ class MultiFileProgressView:
     def __init__(
         self,
         title: str,
-        details: list[str] | None = None,
-        item_label: str = "files",
         min_interval: float = 0.5,
     ) -> None:
         self.title = title
-        self.details = list(details or [])
-        self.item_label = item_label
         self.min_interval = min_interval
         self.started_at = time.perf_counter()
         # Set exactly once at terminal state; freezes the Elapsed display.
@@ -72,11 +68,8 @@ class MultiFileProgressView:
         # View-owned speed measurement: one rolling meter per file row. Speeds
         # and ETA are computed at RENDER time from these meters, so they decay
         # to 0 during a stall instead of freezing at the last producer-supplied
-        # value. The overall speed is the sum of the row meters (or a fresh
-        # producer-supplied hint), so there is no second meter to drift.
+        # value. The overall speed is the sum of the row meters.
         self._row_meters: dict[str, RollingSpeedMeter] = {}
-        self._backend_speed: float | None = None
-        self._backend_speed_at = 0.0
         self._console = make_console(color_system="truecolor")
         # Pass SELF as the renderable: Rich re-invokes __rich_console__ on
         # every auto-refresh (4/s), so Elapsed / ETA / speed keep moving even
@@ -103,7 +96,6 @@ class MultiFileProgressView:
         total_items: int,
         failed_items: int = 0,
         status: str = "Downloading",
-        overall_speed: float | None = None,
         force: bool = False,
     ) -> None:
         with self._lock:
@@ -131,11 +123,6 @@ class MultiFileProgressView:
                     continue
                 meter = self._row_meters.setdefault(state.key, RollingSpeedMeter(window=5.0))
                 meter.update(max(0, int(state.completed or 0)), now)
-            # A producer-reported overall speed is authoritative while fresh;
-            # render falls back to the summed row meters when it goes stale.
-            if overall_speed is not None and overall_speed >= 0:
-                self._backend_speed = float(overall_speed)
-                self._backend_speed_at = now
             should_refresh = force or now - self.last_render >= self.min_interval
             if should_refresh:
                 self.last_render = now
@@ -167,19 +154,13 @@ class MultiFileProgressView:
             if state.status == "active":
                 meter = self._row_meters.get(state.key)
                 state.speed = meter.current(now) if meter is not None else 0.0
-        if self._backend_speed is not None and now - self._backend_speed_at <= 2.5:
-            self.overall_speed = self._backend_speed
-        else:
-            self.overall_speed = sum(meter.current(now) for meter in self._row_meters.values())
+        self.overall_speed = sum(meter.current(now) for meter in self._row_meters.values())
         width = max(70, min(140, int(getattr(self._console, "width", 100) or 100)))
         lines: list[Text] = []
         if self.title:
             title_style = "kiwi.error" if self.status == "Failed" else "kiwi.title"
             title = _shorten_middle(self.title, width - 2)
             lines.append(Text(f"{SYMBOL['group']} {title}", style=title_style))
-        for detail in self.details:
-            if detail:
-                lines.append(Text(f"  {_shorten_middle(detail, width - 2)}", style="kiwi.muted"))
         if lines:
             lines.append(Text(""))
         lines.append(Text("Overall", style="bold"))
@@ -209,7 +190,7 @@ class MultiFileProgressView:
             )
             lines.append(Text("  ").append_text(stats))
         if hidden:
-            lines.append(Text(f"  … and {hidden} more {self.item_label}", style="kiwi.muted"))
+            lines.append(Text(f"  … and {hidden} more files", style="kiwi.muted"))
         return Group(*lines)
 
     def _visible_rows(self) -> tuple[list[tuple[int, ProgressFileState]], int]:
@@ -270,7 +251,9 @@ class MultiFileProgressView:
         text.append_text(_rich_bar(percent, bar_width, status))
         text.append(f" {percent:5.1f}%", style="bold")
         text.append(SEPARATOR, style="kiwi.muted")
-        text.append(f"{_format_bytes(completed)} / {_format_bytes(total) if total else '?'}")
+        text.append(
+            f"{format_bytes(int(completed or 0))} / {format_bytes(int(total)) if total else '?'}"
+        )
         text.append(SEPARATOR, style="kiwi.muted")
         text.append(speed_label, style=speed_style)
         if eta is not None:
@@ -285,7 +268,7 @@ class MultiFileProgressView:
             text.append(SEPARATOR, style="kiwi.muted")
             text.append(f"Elapsed {format_eta(elapsed_ref - self.started_at)}", style="kiwi.muted")
             if width >= 110:
-                item_text = f"{self.completed_items}/{self.total_items} {self.item_label}"
+                item_text = f"{self.completed_items}/{self.total_items} files"
                 if self.failed_items:
                     item_text += f", {self.failed_items} failed"
                 text.append(SEPARATOR, style="kiwi.muted")
@@ -306,19 +289,10 @@ class MultiFileProgressView:
         return SYMBOL["active"], "kiwi.accent"
 
 
-def _format_bytes(size: int | float | None) -> str:
-    value = float(size or 0)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if value < 1024 or unit == "TB":
-            return f"{value:.2f} {unit}"
-        value /= 1024
-    return f"{value:.2f} TB"
-
-
 def _format_speed(speed: float | None) -> str:
     if speed is None:
         return "--"
-    return f"{_format_bytes(speed)}/s"
+    return f"{format_bytes(int(speed))}/s"
 
 
 def _shorten_middle(text: str, limit: int) -> str:

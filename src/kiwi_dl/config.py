@@ -36,22 +36,8 @@ class ConfigCorruptionError(Exception):
 # Nullable (None-default) fields accept an explicit "null"/"none" to unset.
 _NULL_TOKENS = {"null", "none"}
 
-# Settings that existed but never worked; keeping them silently would lie to
-# users, so setting them is rejected with the reason and old persisted values
-# are ignored with a warning.
-DEPRECATED_CONFIG_KEYS = {
-    "chunk_size_kb": "MEGA chunk sizes are protocol-defined; this setting never had an effect "
-    "and was removed.",
-    "smart_proxy_autorefresh_minutes": "not implemented; the proxy pool is reloaded on every "
-    "command run.",
-    "smart_proxy_random": "not implemented; the pool always picks randomly, weighted by health.",
-    "smart_proxy_enabled": "removed; proxies you add are used, and "
-    "`kiwi-dl config set smart_proxy_mode off` switches them off.",
-}
-
-# Deterministic warn-once bookkeeping: old config files written by other
-# tools may carry deprecated or unknown keys on every load;
-# each key is warned about at most once per process, never per access.
+# Deterministic warn-once bookkeeping: unknown keys in hand-edited config files
+# are warned about at most once per process, never per access.
 _warned_config_keys: set[str] = set()
 
 # Fields whose dataclass default is None still have an expected value type.
@@ -64,11 +50,6 @@ _OPTIONAL_STR_KEYS = {
 # Integer fields where null means "no limit". A sentinel like -1 would not do:
 # `config set KEY -1` reads the -1 as an option.
 _OPTIONAL_INT_KEYS = {"quota_budget_seconds"}
-
-# Values of these keys may contain secrets and are never echoed in warnings
-# or `config show`/`config get`. (`smart_proxy_url` can carry credentials too;
-# `display_value` scrubs every string.)
-_SECRET_CONFIG_KEYS: set[str] = set()
 
 
 def _warn_once(key: str, message: str) -> None:
@@ -176,8 +157,7 @@ def validate_config_value(key: str, value) -> None:
     except TypeError:
         ok = False
     if not ok:
-        shown = "<redacted>" if key in _SECRET_CONFIG_KEYS else repr(value)
-        raise ValueError(f"{key} must be {requirement} (got {shown})")
+        raise ValueError(f"{key} must be {requirement} (got {value!r})")
 
 
 def validate_config(cfg: Config) -> list[str]:
@@ -466,13 +446,6 @@ class ConfigStore:
 
         cfg = Config()
         for key, value in data.items():
-            if key in DEPRECATED_CONFIG_KEYS:
-                _warn_once(
-                    key,
-                    f"config: ignoring deprecated key {key} ({DEPRECATED_CONFIG_KEYS[key]}); "
-                    "run `kiwi-dl config migrate` to remove it",
-                )
-                continue
             if hasattr(cfg, key):
                 setattr(cfg, key, value)
             else:
@@ -517,8 +490,6 @@ class ConfigStore:
 
     def _coerce(self, key: str, value):
         """Turn a CLI string into the field's typed value; parse null/none."""
-        if key in DEPRECATED_CONFIG_KEYS:
-            raise ValueError(f"{key} is deprecated: {DEPRECATED_CONFIG_KEYS[key]}")
         if not hasattr(self.config, key):
             raise KeyError(f"Unknown config key: {key}")
         # Nullable fields: an explicit null/none unsets to JSON null; any other
@@ -539,11 +510,6 @@ class ConfigStore:
             if lowered in ("0", "false", "no", "n", "off"):
                 return False
             raise ValueError("Expected a boolean value: true/false, yes/no, on/off, or 1/0")
-        if isinstance(current, dict):
-            parsed = json.loads(value)
-            if not isinstance(parsed, dict):
-                raise ValueError("Expected a JSON object")
-            return parsed
         if isinstance(current, int):
             return int(value)
         if isinstance(current, float):
@@ -553,17 +519,17 @@ class ConfigStore:
     def set(self, key: str, value) -> None:
         with self._locked():
             self._config = self.load()  # reload newest before mutating
+            self._ensure_writable()
             typed = self._coerce(key, value)
             validate_config_value(key, typed)
             setattr(self._config, key, typed)
-            self.save()
+            self._write_locked()
 
     def unset(self, key: str) -> None:
         """Reset a nullable field to JSON null (fails for non-nullable keys)."""
         with self._locked():
             self._config = self.load()
-            if key in DEPRECATED_CONFIG_KEYS:
-                raise ValueError(f"{key} is deprecated: {DEPRECATED_CONFIG_KEYS[key]}")
+            self._ensure_writable()
             if not hasattr(self._config, key):
                 raise KeyError(f"Unknown config key: {key}")
             if key not in _OPTIONAL_STR_KEYS | _OPTIONAL_INT_KEYS:
@@ -571,35 +537,7 @@ class ConfigStore:
                     f"{key} is not a nullable field; use `config reset` to restore defaults"
                 )
             setattr(self._config, key, None)
-            self.save()
-
-    def raw_keys(self) -> frozenset[str]:
-        """Keys present in the persisted JSON file (empty when absent)."""
-        if not self.path.exists():
-            return frozenset()
-        try:
-            with open(self.path, encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return frozenset()
-        return frozenset(data.keys()) if isinstance(data, dict) else frozenset()
-
-    def migrate(self) -> list[str]:
-        """Normalize the persisted config: drop deprecated/unknown keys.
-
-        Returns the removed keys so callers can report them.
-        Values of known keys are validated/kept by the normal load path.
-        """
-        with self._locked():
-            self._config = self.load()  # detects corruption before any rewrite
-            self._ensure_writable()
-            stale = sorted(
-                key
-                for key in self.raw_keys()
-                if key in DEPRECATED_CONFIG_KEYS or not hasattr(Config(), key)
-            )
-            self.save()
-            return stale
+            self._write_locked()
 
     def reset(self) -> None:
         with self._locked():
@@ -608,7 +546,7 @@ class ConfigStore:
             self.load()
             self._ensure_writable()
             self._config = self._defaults()
-            self.save()
+            self._write_locked()
 
     def recover(self) -> Path | None:
         """Explicit recovery from corruption: write a fresh default config.

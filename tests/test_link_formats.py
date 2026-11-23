@@ -2,7 +2,7 @@
 
 import pytest
 
-from kiwi_dl.core.links import LinkType, is_mega_url, parse_link
+from kiwi_dl.core.links import LinkType, parse_link
 
 
 @pytest.mark.parametrize(
@@ -40,12 +40,6 @@ def test_parse_link_types(url, expected_type, expected_id, expected_key, expecte
     assert p.subpath == expected_sub
 
 
-def test_is_mega_url_accepts_mega_hosts_only():
-    assert is_mega_url("https://mega.nz/file/ABC#KEY")
-    assert is_mega_url("https://mega.co.nz/folder/ABC#KEY")
-    assert not is_mega_url("https://example.com/file")
-
-
 @pytest.mark.parametrize(
     "url",
     ["mc://server.example/token", "mega://enc?xxx", "mega://fenc2?xxx", "mega://elc?xxx"],
@@ -53,7 +47,6 @@ def test_is_mega_url_accepts_mega_hosts_only():
 )
 def test_third_party_link_wrappers_are_not_supported(url):
     """kiwi-dl reads MEGA's own link formats only."""
-    assert not is_mega_url(url)
     with pytest.raises(ValueError, match="Not a recognizable MEGA link"):
         parse_link(url)
 

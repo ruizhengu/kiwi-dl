@@ -84,6 +84,12 @@ def test_the_command_passes_the_hook_to_every_helper_call():
     from kiwi_dl.commands import download_cmd
 
     source = inspect.getsource(download_cmd)
-    helper_calls = source.count("_download_file(") + source.count("_download_folder")
+    helper_calls = (
+        source.count("_download_file(")
+        + source.count("_download_folder(")
+        + source.count("_download_folder_file(")
+    )
     passed = source.count("run_command=cfg.run_command")
-    assert passed >= 5, f"only {passed} of {helper_calls} call sites pass the hook config"
+    assert (
+        passed == helper_calls >= 3
+    ), f"only {passed} of {helper_calls} call sites pass the hook config"

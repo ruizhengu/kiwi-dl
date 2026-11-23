@@ -3,11 +3,9 @@
 import base64
 import hashlib
 import struct
-import subprocess
 
 import pytest
 
-import kiwi_dl.core.hashcash as hashcash
 from kiwi_dl.core.hashcash import (
     PREFIX_BYTES,
     REPEAT,
@@ -70,40 +68,3 @@ def test_threshold_increases_with_easiness():
     low = HashcashChallenge(version=1, easiness=0, token=b"\0" * TOKEN_BYTES).threshold
     high = HashcashChallenge(version=1, easiness=255, token=b"\0" * TOKEN_BYTES).threshold
     assert high > low
-
-
-def test_native_solver_env_override_builds_expected_command(monkeypatch, tmp_path):
-    solver = tmp_path / "solver.exe"
-    solver.write_bytes(b"")
-    token = b"\x03" * TOKEN_BYTES
-    challenge = HashcashChallenge(version=1, easiness=192, token=token)
-    calls = []
-
-    def fake_run(args, **kwargs):
-        calls.append((args, kwargs))
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout="0000002a\n", stderr="")
-
-    monkeypatch.setenv("KIWI_DL_HASHCASH_SOLVER", str(solver))
-    monkeypatch.setattr(hashcash.subprocess, "run", fake_run)
-
-    nonce = hashcash._solve_with_native(challenge, timeout=1.5, workers=3)
-
-    assert nonce == bytes.fromhex("0000002a")
-    assert calls[0][0] == [str(solver), "192", token.hex(), "3", "1500"]
-    assert calls[0][1]["timeout"] == 1.5 + hashcash.NATIVE_TIMEOUT_MARGIN_S
-
-
-def test_native_solver_invalid_output_returns_none(monkeypatch, tmp_path):
-    solver = tmp_path / "solver.exe"
-    solver.write_bytes(b"")
-    challenge = HashcashChallenge(version=1, easiness=192, token=b"\x04" * TOKEN_BYTES)
-
-    def fake_run(args, **kwargs):
-        return subprocess.CompletedProcess(
-            args=args, returncode=0, stdout="not-a-nonce\n", stderr=""
-        )
-
-    monkeypatch.setenv("KIWI_DL_HASHCASH_SOLVER", str(solver))
-    monkeypatch.setattr(hashcash.subprocess, "run", fake_run)
-
-    assert hashcash._solve_with_native(challenge, timeout=1.0, workers=1) is None

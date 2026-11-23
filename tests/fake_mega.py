@@ -15,19 +15,80 @@ Not a mock framework. Add only what a test needs to observe.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import os
 import threading
 from types import SimpleNamespace
 
 import requests
+from Crypto.Cipher import AES
 
 from kiwi_dl.core.crypto import (
-    aes_key_wrap_encrypt,
+    ATTR_PREFIX,
     b64_url_encode,
     bytes_to_a32,
-    encrypt_attributes,
-    pack_file_key,
+    derive_password_link_keys,
 )
+
+
+def aes_cbc_encrypt(data: bytes, key: bytes) -> bytes:
+    """AES-128-CBC encrypt with zero IV (test fixture builder)."""
+    return AES.new(key, AES.MODE_CBC, b"\x00" * 16).encrypt(data)
+
+
+def aes_key_wrap_encrypt(data: bytes, key: bytes) -> bytes:
+    """MEGA block-by-block AES key wrap (test fixture builder)."""
+    if len(data) % 16:
+        raise ValueError(f"key-wrap input must be a multiple of 16 bytes, got {len(data)}")
+    out = b""
+    for i in range(0, len(data), 16):
+        out += AES.new(key, AES.MODE_CBC, b"\x00" * 16).encrypt(data[i : i + 16])
+    return out
+
+
+def pack_file_key(aes_key: bytes, nonce: bytes, mac_iv: list[int]) -> list[int]:
+    """Pack AES key, nonce, and MAC IV into MEGA's 8-uint32 file key format."""
+    aes_a32 = bytes_to_a32(aes_key)
+    nonce_a32 = bytes_to_a32(nonce)
+    return [
+        aes_a32[0] ^ nonce_a32[0],
+        aes_a32[1] ^ nonce_a32[1],
+        aes_a32[2] ^ mac_iv[0],
+        aes_a32[3] ^ mac_iv[1],
+        nonce_a32[0],
+        nonce_a32[1],
+        mac_iv[0],
+        mac_iv[1],
+    ]
+
+
+def encrypt_attributes(attrs: dict, key: bytes) -> bytes:
+    """Encrypt a MEGA attribute dictionary (test fixture builder)."""
+    plaintext = ATTR_PREFIX + json.dumps(attrs, separators=(",", ":")).encode("utf-8")
+    plaintext += b"\x00" * ((-len(plaintext)) % 16)
+    return aes_cbc_encrypt(plaintext, key)
+
+
+def encrypt_password_link(
+    node_type: int, public_handle: bytes, raw_key: bytes, password: str, algo: int = 2
+) -> str:
+    """Build a MEGA `#P!` password-protected link blob (test fixture builder)."""
+    if node_type not in (0, 1):
+        raise ValueError("node_type must be 0 (file) or 1 (folder)")
+    expected_len = 32 if node_type == 0 else 16
+    if len(raw_key) != expected_len:
+        raise ValueError(f"Expected {expected_len}-byte key, got {len(raw_key)}")
+    if len(public_handle) != 6:
+        raise ValueError(f"Public handle must be 6 bytes, got {len(public_handle)}")
+    salt = os.urandom(32)
+    aes_xor_key, hmac_key = derive_password_link_keys(password, salt, algo=algo)
+    enc_key = bytes(a ^ b for a, b in zip(raw_key, aes_xor_key[:expected_len], strict=True))
+    body = bytes([algo, node_type]) + public_handle + salt + enc_key
+    mac = hmac.new(hmac_key, body, hashlib.sha256).digest()
+    return b64_url_encode(body + mac)
+
 
 # Node type codes, straight from the protocol.
 FILE, FOLDER, ROOT, INBOX, TRASH = 0, 1, 2, 3, 4

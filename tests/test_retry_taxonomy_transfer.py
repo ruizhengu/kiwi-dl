@@ -22,7 +22,7 @@ from kiwi_dl.core.errors import (
     TransferCancelled,
     TransferError,
 )
-from kiwi_dl.proxy.selector import ProxyRequiredError
+from kiwi_dl.proxy.smart_proxy import ProxyRequiredError
 
 
 @pytest.mark.parametrize(

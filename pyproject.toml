@@ -37,7 +37,6 @@ dependencies = [
     # [socks]: PySocks, so socks4:// and socks5:// proxies in the pool work.
     "requests[socks]>=2.31.0",
     "pycryptodome>=3.19.0",
-    "tenacity>=8.2.0",
 ]
 
 [project.optional-dependencies]

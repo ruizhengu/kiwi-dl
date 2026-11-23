@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import subprocess
-import time
 
 import pytest
 
@@ -104,79 +102,7 @@ def test_token_with_characters_outside_base64url_is_rejected(junk: str) -> None:
         parse_challenge(f"1:192:1731410499:{text[:10]}{junk}{text[11:]}")
 
 
-def test_external_solver_time_comes_out_of_the_same_deadline(monkeypatch, tmp_path) -> None:
-    """A slow, failing external solver must not buy the built-in search a fresh timeout."""
-    solver = tmp_path / "solver"
-    solver.write_bytes(b"")
-    monkeypatch.setenv("KIWI_DL_HASHCASH_SOLVER", str(solver))
-
-    def slow_crash(args, **kwargs):
-        time.sleep(1.0)
-        return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="crashed")
-
-    monkeypatch.setattr(hashcash.subprocess, "run", slow_crash)
-    monkeypatch.setattr(hashcash, "_check_nonce", lambda *args: False)
-
-    challenge = HashcashChallenge(version=1, easiness=0, token=b"\x05" * TOKEN_BYTES)
-    started = time.monotonic()
-    with pytest.raises(TimeoutError):
-        hashcash.solve(challenge, timeout=1.2, workers=2)
-    elapsed = time.monotonic() - started
-
-    # One budget is ~1.2 s. Restarting it after the solver would take ~2.2 s.
-    assert elapsed < 1.8, f"took {elapsed:.2f}s of a 1.2s budget"
-
-
-@pytest.mark.parametrize(
-    ("stdout", "expected"),
-    [
-        ("0000002a\n", bytes.fromhex("0000002a")),
-        ("searching...\nDEADBEEF\n", bytes.fromhex("deadbeef")),
-        ("0000002a\nnot an answer\n", bytes.fromhex("0000002a")),
-        ("ab cd ef\n", None),  # 8 characters, but only 3 bytes
-        ("0x00002a\n", None),
-        ("0000002a0\n", None),
-        ("", None),
-    ],
-)
-def test_only_a_line_of_exactly_eight_hex_digits_is_an_answer(
-    stdout: str, expected: bytes | None
-) -> None:
-    assert hashcash._prefix_from_output(stdout) == expected
-
-
-def test_solver_exit_code_2_means_out_of_time(monkeypatch, tmp_path) -> None:
-    solver = tmp_path / "solver"
-    solver.write_bytes(b"")
-    monkeypatch.setenv("KIWI_DL_HASHCASH_SOLVER", str(solver))
-    monkeypatch.setattr(
-        hashcash.subprocess,
-        "run",
-        lambda args, **kwargs: subprocess.CompletedProcess(args, 2, stdout="", stderr=""),
-    )
-    challenge = HashcashChallenge(version=1, easiness=192, token=b"\x07" * TOKEN_BYTES)
-    with pytest.raises(TimeoutError):
-        hashcash._solve_with_native(challenge, timeout=1.0, workers=1)
-
-
-@pytest.mark.parametrize("switch", ["0", "false", "No", "OFF", "n"])
-def test_native_switch_off_ignores_a_configured_solver(monkeypatch, tmp_path, switch) -> None:
-    solver = tmp_path / "solver"
-    solver.write_bytes(b"")
-    monkeypatch.setenv("KIWI_DL_HASHCASH_SOLVER", str(solver))
-    monkeypatch.setenv("KIWI_DL_HASHCASH_NATIVE", switch)
-
-    def must_not_run(*args, **kwargs):
-        raise AssertionError("the external solver ran although it was switched off")
-
-    monkeypatch.setattr(hashcash.subprocess, "run", must_not_run)
-    challenge = HashcashChallenge(version=1, easiness=192, token=b"\x08" * TOKEN_BYTES)
-    assert hashcash._solve_with_native(challenge, timeout=1.0, workers=1) is None
-
-
 def test_a_crashing_worker_is_reported_not_disguised_as_a_timeout(monkeypatch) -> None:
-    monkeypatch.setenv("KIWI_DL_HASHCASH_NATIVE", "0")
-
     def broken(*args):
         raise RuntimeError("hash backend broke")
 

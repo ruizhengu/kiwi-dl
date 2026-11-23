@@ -73,7 +73,6 @@ def _slow_solver(monkeypatch):
 def _client(session) -> MegaAPIClient:
     client = MegaAPIClient(timeout=1)
     client._session = session
-    client.set_session("fake-sid")
     return client
 
 

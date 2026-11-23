@@ -11,7 +11,7 @@ import re
 
 REDACTED = "<redacted>"
 # Config/field names whose VALUE is always a secret, wherever they appear
-# (top level or nested inside elc_accounts / structured records).
+# (top level or nested inside structured records).
 SECRET_FIELD_NAMES = frozenset(
     {
         "connect_proxy_password",
@@ -72,11 +72,6 @@ _FREE_TEXT_SECRET = re.compile(
 # avoid eating ordinary prose after the word.
 _FREE_TEXT_CODE = re.compile(r"(?i)\b((?:mfa|otp|2fa)(?:[ _-]?code)?)\s+(\d{4,12})\b")
 
-# Fields whose value is an INTENTIONAL public link the caller wants emitted
-# in full (a share link the user asked to generate). These keep their key
-# fragment; secret query params are still scrubbed.
-LINK_OUTPUT_FIELDS = frozenset({"share_link", "public_link"})
-
 
 # Punctuation that ends a sentence or closes a bracket rather than belonging to
 # the secret: `(password: hunter2), retrying` must keep its `),`.
@@ -135,9 +130,8 @@ def sanitize(value, _field: str | None = None):
     """Recursively redact secrets in a JSON-serializable structure.
 
     A value whose *field name* is a known secret is replaced wholesale;
-    intentional link-output fields keep their key fragment; all other strings
-    are scrubbed for embedded secret substrings and containers are walked
-    element by element.
+    all other strings are scrubbed for embedded secret substrings and
+    containers are walked element by element.
     """
     field = _field.lower() if _field is not None else None
     if field is not None and field in SECRET_FIELD_NAMES:
@@ -147,8 +141,5 @@ def sanitize(value, _field: str | None = None):
     if isinstance(value, (list, tuple)):
         return [sanitize(v) for v in value]
     if isinstance(value, str):
-        if field in LINK_OUTPUT_FIELDS:
-            # Keep the full public link; only strip secret query params.
-            return _SECRET_QUERY.sub(rf"\1={REDACTED}", value)
         return redact_text(value)
     return value

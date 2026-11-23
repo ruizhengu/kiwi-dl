@@ -22,9 +22,10 @@ from ..core.folder_downloader import MegaFolderDownloader
 from ..ui.machine_output import MachineOutput, error_code_for
 from ..ui.prompts import print_error, print_skip, print_success
 from ..ui.theme import SYMBOL, make_console
-from ..ui.transfer_progress import TransferProgress, redact_link
+from ..ui.transfer_progress import TransferProgress
 from ..utils.helpers import format_bytes
 from ..utils.hooks import run_post_transfer_command
+from ..utils.redaction import redact_link
 from ..utils.selection import SelectionCancelled, parse_selection_tokens
 
 _console = make_console()
@@ -273,7 +274,6 @@ def _download_folder(
     items: dict[str, str] = {}  # destination str -> progress item key
     progress = TransferProgress(
         title=f"Folder {redact_link(url)}",
-        direction="download",
         quiet=quiet,
     )
 

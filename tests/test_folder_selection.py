@@ -16,10 +16,8 @@ import pytest
 
 from kiwi_dl.core.crypto import (
     a32_to_bytes,
-    aes_key_wrap_encrypt,
     b64_url_encode,
     bytes_to_a32,
-    encrypt_attributes,
     str_to_a32,
     unpack_file_key,
 )
@@ -30,6 +28,7 @@ from kiwi_dl.utils.selection import (
     build_folder_file_filter,
     parse_selection_tokens,
 )
+from tests.fake_mega import aes_key_wrap_encrypt, encrypt_attributes
 
 
 def _job(name: str, rel_path: str, root: Path, size: int = 100) -> tuple[FolderNode, Path]:

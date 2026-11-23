@@ -52,7 +52,6 @@ def test_corrupt_roots_are_detected_and_never_rewritten(tmp_path, data):
     for mutate in (
         lambda: store.set("max_workers", "4"),
         lambda: store.unset("run_command"),
-        lambda: store.migrate(),
         lambda: store.reset(),
         lambda: store.save(),
     ):
@@ -128,7 +127,6 @@ def corrupt_env(tmp_path, monkeypatch):
     [
         ["config", "set", "max_workers", "4"],
         ["config", "unset", "run_command"],
-        ["config", "migrate"],
         ["config", "reset"],
     ],
 )
@@ -250,10 +248,9 @@ def test_fresh_store_save_cannot_overwrite_a_corrupt_file(tmp_path):
         lambda s: s.save(),
         lambda s: s.set("max_workers", "4"),
         lambda s: s.unset("run_command"),
-        lambda s: s.migrate(),
         lambda s: s.reset(),
     ],
-    ids=["save", "set", "unset", "migrate", "reset"],
+    ids=["save", "set", "unset", "reset"],
 )
 def test_every_entry_point_refuses_on_a_fresh_store(tmp_path, mutate):
     path = tmp_path / "config.json"
@@ -306,11 +303,10 @@ def test_serialization_failure_leaves_the_original_intact(tmp_path):
         lambda s: s.save(),
         lambda s: s.set("max_workers", "4"),
         lambda s: s.unset("run_command"),
-        lambda s: s.migrate(),
         lambda s: s.reset(),
         lambda s: s.recover(),
     ],
-    ids=["save", "set", "unset", "migrate", "reset", "recover"],
+    ids=["save", "set", "unset", "reset", "recover"],
 )
 def test_library_entry_points_raise_config_lock_error(tmp_path, monkeypatch, mutate):
     path = tmp_path / "config.json"
@@ -328,7 +324,6 @@ def test_library_entry_points_raise_config_lock_error(tmp_path, monkeypatch, mut
     [
         ["config", "set", "max_workers", "4"],
         ["config", "unset", "run_command"],
-        ["config", "migrate"],
         ["config", "reset"],
         ["config", "recover", "--reset"],
     ],

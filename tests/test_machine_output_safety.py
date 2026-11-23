@@ -105,12 +105,6 @@ def test_secret_field_names_redacted_wholesale():
     assert out["name"] == "ok"
 
 
-def test_share_link_field_keeps_its_key():
-    # A share link is intentional public output; only query secrets scrubbed.
-    out = sanitize({"share_link": "https://mega.nz/file/H#PUBLICKEY"})
-    assert out["share_link"] == "https://mega.nz/file/H#PUBLICKEY"
-
-
 def test_error_codes_are_stable():
     assert error_code_for(QuotaError(message="x")) == "quota_exceeded"
     assert error_code_for(TransferError(message="x")) == "transfer_failed"

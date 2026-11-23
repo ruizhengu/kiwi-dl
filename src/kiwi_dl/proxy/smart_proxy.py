@@ -20,10 +20,23 @@ import time
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 
+from ..core.errors import NonRetryableTransferError
 from ..utils.redaction import redact_text
 from .lists import ListRefresher, ProxyList
 
 log = logging.getLogger(__name__)
+
+
+class ProxyRequiredError(NonRetryableTransferError):
+    """force_smart_proxy is on but no usable proxy is available.
+
+    A TransferError (and therefore a MegaError) so every existing
+    command-level handler already reports it as a normal transfer failure —
+    non-zero exit with a sanitized message, never a traceback.
+
+    Non-retryable: the pool's state cannot change because we asked again, so
+    replaying this decision only burns the retry budget in backoff.
+    """
 
 
 @dataclass

@@ -63,7 +63,7 @@ def test_api_pool_pick_wins_over_static():
 
 
 # ---------------------------------------------------------------------------
-# MegaDownloader._proxies_for_request
+# MegaDownloader._router.route()
 # ---------------------------------------------------------------------------
 
 
@@ -74,7 +74,7 @@ def _make_downloader(**kwargs):
 def test_downloader_force_proxy_no_pool_no_static_refuses():
     dl = _make_downloader(proxies=None, proxy_pool=None, force_proxy=True)
     with pytest.raises(TransferError, match="force_smart_proxy"):
-        dl._proxies_for_request()
+        dl._router.route()
 
 
 def test_downloader_force_proxy_with_static_ok():
@@ -83,20 +83,20 @@ def test_downloader_force_proxy_with_static_ok():
         proxy_pool=None,
         force_proxy=True,
     )
-    result, picked = dl._proxies_for_request()
-    assert result == {"http": "http://manual:8080", "https": "http://manual:8080"}
-    assert picked is None
+    route = dl._router.route()
+    assert route.proxies == {"http": "http://manual:8080", "https": "http://manual:8080"}
+    assert route.proxy is None
 
 
 def test_downloader_force_proxy_empty_pool_refuses():
     pool = SmartProxyPool()
     dl = _make_downloader(proxy_pool=pool, force_proxy=True)
     with pytest.raises(TransferError, match="force_smart_proxy"):
-        dl._proxies_for_request()
+        dl._router.route()
 
 
 def test_downloader_no_force_returns_direct():
     dl = _make_downloader(proxies=None, proxy_pool=None, force_proxy=False)
-    result, picked = dl._proxies_for_request()
-    assert result is None
-    assert picked is None
+    route = dl._router.route()
+    assert route.proxies is None
+    assert route.proxy is None

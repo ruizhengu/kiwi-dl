@@ -30,13 +30,11 @@ def cli_env(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_clone_isolates_session_and_sequence_but_carries_sid():
+def test_clone_isolates_session_and_sequence():
     base = MegaAPIClient(timeout=42)
-    base.set_session("SID-VALUE")
     dup = base.clone()
     assert dup is not base
     assert dup._session is not base._session, "clone must own its own requests.Session"
-    assert dup.session_id == "SID-VALUE"
     assert dup.timeout == 42
     before = base._seq
     dup._build_url()

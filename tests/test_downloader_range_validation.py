@@ -14,29 +14,19 @@ from __future__ import annotations
 
 import pytest
 
-from kiwi_dl.core.errors import TransferError
-from kiwi_dl.core.range_validation import (
+from kiwi_dl.core.download_transport import (
     RangeNotHonoredError,
     validate_range_response,
 )
+from kiwi_dl.core.errors import TransferError
 
 
 @pytest.fixture(autouse=True)
 def _no_retry_backoff(monkeypatch):
-    """Exercise the validation, not tenacity's wall-clock backoff.
-
-    `_download_chunk` is wrapped in an exponential-backoff retry; without this
-    these tests spend minutes sleeping between attempts.
-    """
-    from tenacity import wait_none
-
+    """Exercise the validation, not wall-clock backoff."""
     from kiwi_dl.core import downloader as dl
 
-    for attribute in ("_download_chunk",):
-        target = getattr(dl.MegaDownloader, attribute, None)
-        retry_state = getattr(target, "retry", None)
-        if retry_state is not None:
-            monkeypatch.setattr(retry_state, "wait", wait_none(), raising=False)
+    monkeypatch.setattr(dl, "_chunk_retry_delay", lambda attempt: 0.0)
 
 
 TOTAL = 4 * 1024 * 1024

@@ -11,11 +11,8 @@ import os
 
 import pytest
 
-from kiwi_dl.core.crypto import (
-    aes_cbc_encrypt,
-    aes_key_wrap_decrypt,
-    aes_key_wrap_encrypt,
-)
+from kiwi_dl.core.crypto import aes_key_wrap_decrypt
+from tests.fake_mega import aes_cbc_encrypt, aes_key_wrap_encrypt
 
 
 def test_key_wrap_roundtrip_16_bytes():

@@ -31,11 +31,10 @@ from click.testing import CliRunner
 from kiwi_dl.cli import cli
 from kiwi_dl.core.crypto import (
     a32_to_bytes,
-    aes_key_wrap_encrypt,
     b64_url_encode,
-    encrypt_attributes,
     str_to_a32,
 )
+from tests.fake_mega import aes_key_wrap_encrypt, encrypt_attributes
 
 # The 22-char folder link key, and the same 16 bytes the listing is wrapped
 # with. Writing the two independently is how a share ends up structurally

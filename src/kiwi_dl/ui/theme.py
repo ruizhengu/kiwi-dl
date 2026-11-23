@@ -30,7 +30,6 @@ THEME = Theme(
         "kiwi.muted": PALETTE["muted"],
         "kiwi.path": PALETTE["path"],
         "kiwi.value": PALETTE["value"],
-        "kiwi.option": PALETTE["warning"],
         "kiwi.default": PALETTE["success"],
         "kiwi.table.header": f"bold {PALETTE['accent']}",
         "kiwi.table.border": PALETTE["muted"],
@@ -63,14 +62,8 @@ def make_console(**kwargs) -> Console:
 # Rich parses plain `str` as markup, so any remote-controlled value (a MEGA
 # filename, a server-supplied error string) could choose its own styling, or
 # abort the whole render with `MarkupError` on an unbalanced tag. The rule
-# enforced here: a plain `str` is UNTRUSTED and is shown literally; app-authored
-# styling must be opted in via `markup()`.
+# enforced here: a plain `str` is UNTRUSTED and is shown literally.
 # ---------------------------------------------------------------------------
-
-
-def markup(text: str) -> Text:
-    """Mark app-authored text as trusted Rich markup (`[kiwi.muted]...[/kiwi.muted]`)."""
-    return Text.from_markup(text)
 
 
 def literal(text: object) -> Text:
@@ -79,12 +72,7 @@ def literal(text: object) -> Text:
 
 
 class SafeTable(Table):
-    """`rich.table.Table` that treats plain `str` cells as untrusted literal text.
-
-    Use `markup("[kiwi.success]Y[/kiwi.success]")` for deliberate in-cell styling;
-    column-level `style=` is unaffected and remains the normal way to colour a
-    column.
-    """
+    """`rich.table.Table` that treats plain `str` cells as untrusted literal text."""
 
     def add_row(self, *renderables: Any, **kwargs: Any) -> None:
         super().add_row(

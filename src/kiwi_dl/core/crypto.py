@@ -1,11 +1,10 @@
 """Cryptographic helpers for the MEGA protocol.
 
 MEGA uses:
-- AES-128-CBC with zero IV for wrapping keys
-- AES-128-CTR for file content encryption
+- AES-128-CBC with zero IV for unwrapping keys and decrypting attributes
+- AES-128-CTR for file content decryption
 - A custom chunked MAC for file integrity
-- PBKDF2 (newer accounts) or a custom iterative AES-CBC derivation (legacy) for
-  deriving the master key from a password
+- PBKDF2-HMAC-SHA512 for decrypting password-protected `#P!` links
 
 References:
 - https://mega.nz/SecurityWhitePaper.pdf
@@ -85,14 +84,8 @@ def str_to_a32(s: str) -> list[int]:
 
 
 # ---------------------------------------------------------------------------
-# AES-CBC (key wrapping)
+# AES-CBC (key unwrapping & attribute decryption)
 # ---------------------------------------------------------------------------
-
-
-def aes_cbc_encrypt(data: bytes, key: bytes) -> bytes:
-    """AES-128-CBC encrypt with zero IV. Used for attribute encryption."""
-    cipher = AES.new(key, AES.MODE_CBC, b"\x00" * 16)
-    return cipher.encrypt(data)
 
 
 def aes_cbc_decrypt(data: bytes, key: bytes) -> bytes:
@@ -101,24 +94,8 @@ def aes_cbc_decrypt(data: bytes, key: bytes) -> bytes:
     return cipher.decrypt(data)
 
 
-def aes_key_wrap_encrypt(data: bytes, key: bytes) -> bytes:
-    """AES key-wrap encrypt: each 16-byte block ECB-style (zero IV per block).
-
-    MEGA wraps node keys block-by-block rather than chaining them: a 32-byte
-    file key is two independent AES blocks encrypted with the master key. Use
-    this — NOT `aes_cbc_encrypt` — anywhere you're wrapping a node key.
-    """
-    if len(data) % 16:
-        raise ValueError(f"key-wrap input must be a multiple of 16 bytes, got {len(data)}")
-    out = b""
-    for i in range(0, len(data), 16):
-        cipher = AES.new(key, AES.MODE_CBC, b"\x00" * 16)
-        out += cipher.encrypt(data[i : i + 16])
-    return out
-
-
 def aes_key_wrap_decrypt(data: bytes, key: bytes) -> bytes:
-    """Inverse of `aes_key_wrap_encrypt`: ECB-style 16-byte-block decryption."""
+    """ECB-style 16-byte-block decryption for MEGA wrapped node keys."""
     if len(data) % 16:
         raise ValueError(f"key-wrap input must be a multiple of 16 bytes, got {len(data)}")
     out = b""
@@ -181,36 +158,11 @@ def unpack_file_key(key_a32: list[int]) -> tuple[bytes, bytes, list[int]]:
     return aes_key, nonce, mac_iv
 
 
-def pack_file_key(aes_key: bytes, nonce: bytes, mac_iv: list[int]) -> list[int]:
-    """Pack AES key, nonce, and MAC IV back into the 8-uint32 file key format."""
-    aes_a32 = bytes_to_a32(aes_key)
-    nonce_a32 = bytes_to_a32(nonce)
-    return [
-        aes_a32[0] ^ nonce_a32[0],
-        aes_a32[1] ^ nonce_a32[1],
-        aes_a32[2] ^ mac_iv[0],
-        aes_a32[3] ^ mac_iv[1],
-        nonce_a32[0],
-        nonce_a32[1],
-        mac_iv[0],
-        mac_iv[1],
-    ]
-
-
 # ---------------------------------------------------------------------------
-# Attribute encryption (file metadata)
+# Attribute decryption (file metadata)
 # ---------------------------------------------------------------------------
 
 ATTR_PREFIX = b"MEGA"
-
-
-def encrypt_attributes(attrs: dict, key: bytes) -> bytes:
-    """Encrypt the attribute dictionary (filename, etc.) for a file."""
-    plaintext = ATTR_PREFIX + json.dumps(attrs, separators=(",", ":")).encode("utf-8")
-    # Pad to 16-byte multiple
-    pad_len = (-len(plaintext)) % 16
-    plaintext += b"\x00" * pad_len
-    return aes_cbc_encrypt(plaintext, key)
 
 
 def decrypt_attributes(data: bytes, key: bytes) -> dict | None:
@@ -294,28 +246,3 @@ def decrypt_password_link(encoded_blob: str, password: str) -> tuple[int, bytes,
     # this case, so strict is the belt to that braces).
     plain_key = bytes(a ^ b for a, b in zip(encrypted_key, aes_xor_key[:key_len], strict=True))
     return node_type, public_handle, plain_key
-
-
-def encrypt_password_link(
-    node_type: int, public_handle: bytes, raw_key: bytes, password: str, algo: int = 2
-) -> str:
-    """Build a MEGA `#P!` blob for a node so it can be shared with a password."""
-    import hashlib
-    import hmac as _hmac
-    import os
-
-    if node_type not in (0, 1):
-        raise ValueError("node_type must be 0 (file) or 1 (folder)")
-    expected_len = 32 if node_type == 0 else 16
-    if len(raw_key) != expected_len:
-        raise ValueError(f"Expected {expected_len}-byte key, got {len(raw_key)}")
-    if len(public_handle) != 6:
-        raise ValueError(f"Public handle must be 6 bytes, got {len(public_handle)}")
-
-    salt = os.urandom(32)
-    aes_xor_key, hmac_key = derive_password_link_keys(password, salt, algo=algo)
-    enc_key = bytes(a ^ b for a, b in zip(raw_key, aes_xor_key[:expected_len], strict=True))
-
-    body = bytes([algo, node_type]) + public_handle + salt + enc_key
-    mac = _hmac.new(hmac_key, body, hashlib.sha256).digest()
-    return b64_url_encode(body + mac)

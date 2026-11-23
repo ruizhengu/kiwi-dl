@@ -7,7 +7,6 @@ import json
 import pytest
 
 from kiwi_dl.config import (
-    DEPRECATED_CONFIG_KEYS,
     Config,
     ConfigStore,
     validate_config,
@@ -81,12 +80,7 @@ def test_validate_config_reports_and_repairs():
     assert cfg.log_level == Config().log_level
 
 
-def test_deprecated_keys_are_rejected_on_set_and_ignored_on_load(tmp_path):
-    store = _store(tmp_path)
-    for key in DEPRECATED_CONFIG_KEYS:
-        with pytest.raises(ValueError, match="deprecated"):
-            store.set(key, "1")
-    # Old config files containing them still load fine.
+def test_unknown_keys_are_ignored_on_load(tmp_path):
     path = tmp_path / "old.json"
     path.write_text(
         json.dumps({"chunk_size_kb": 2048, "smart_proxy_random": False, "max_workers": 4}),
@@ -143,51 +137,22 @@ def test_boolean_not_accepted_for_numeric_fields(tmp_path):
     assert cfg.speed_limit_kbps == Config().speed_limit_kbps
 
 
-def test_deprecated_and_unknown_keys_warn_once_per_process(tmp_path, caplog, monkeypatch):
+def test_unknown_keys_warn_once_per_process(tmp_path, caplog, monkeypatch):
     """MF10: repeated loads must not repeat the warning."""
     import kiwi_dl.config as config_module
 
     monkeypatch.setattr(config_module, "_warned_config_keys", set())
     path = tmp_path / "config.json"
     path.write_text(
-        json.dumps({"chunk_size_kb": 1024, "totally_unknown_key": 1, "max_workers": 4}),
+        json.dumps({"totally_unknown_key": 1, "max_workers": 4}),
         encoding="utf-8",
     )
     with caplog.at_level("WARNING"):
         ConfigStore(path).load()
         ConfigStore(path).load()
         ConfigStore(path).load()
-    deprecated_warnings = [r for r in caplog.records if "chunk_size_kb" in r.getMessage()]
     unknown_warnings = [r for r in caplog.records if "totally_unknown_key" in r.getMessage()]
-    assert len(deprecated_warnings) == 1
     assert len(unknown_warnings) == 1
-
-
-def test_migrate_removes_deprecated_keys_and_preserves_settings(tmp_path):
-    path = tmp_path / "config.json"
-    path.write_text(
-        json.dumps(
-            {
-                "chunk_size_kb": 2048,
-                "smart_proxy_random": False,
-                "totally_unknown_key": 1,
-                "max_workers": 4,
-                "run_command": "notify-send done",
-            }
-        ),
-        encoding="utf-8",
-    )
-    store = ConfigStore(path)
-    removed = store.migrate()
-    assert sorted(removed) == ["chunk_size_kb", "smart_proxy_random", "totally_unknown_key"]
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    assert "chunk_size_kb" not in raw
-    assert "smart_proxy_random" not in raw
-    assert "totally_unknown_key" not in raw
-    assert raw["max_workers"] == 4
-    assert raw["run_command"] == "notify-send done"
-    # Second migrate is a no-op.
-    assert ConfigStore(path).migrate() == []
 
 
 def test_old_external_integration_config_loads_safely(tmp_path):

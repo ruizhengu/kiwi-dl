@@ -17,7 +17,8 @@ import pytest
 
 import kiwi_dl.ui.progress as progress_module
 from kiwi_dl.ui.progress import MultiFileProgressView
-from kiwi_dl.ui.transfer_progress import TransferProgress, redact_link
+from kiwi_dl.ui.transfer_progress import TransferProgress
+from kiwi_dl.utils.redaction import redact_link
 
 
 class _NoOpLive:
@@ -106,7 +107,6 @@ def test_overall_aggregation_and_failed_counts():
     assert last["overall_total"] == 400
     assert last["failed_items"] == 1
     assert last["total_items"] == 2
-    assert tp.failed_count() == 1
 
 
 def test_quiet_mode_creates_no_view():
@@ -118,14 +118,6 @@ def test_quiet_mode_creates_no_view():
     tp.close()
     assert view_calls == [], "quiet mode must not build a live view"
     assert tp.statuses()[item] == "complete"
-
-
-def test_mixed_direction_prefixes_names():
-    tp, view = _controller(direction="mixed")
-    tp.add_item("up.bin", 1, direction="upload")
-    tp.add_item("down.bin", 1, direction="download")
-    names = [s.name for s in view.updates[-1]["states"]]
-    assert names == ["↑ up.bin", "↓ down.bin"]
 
 
 def test_redact_link_strips_key_material():
@@ -313,4 +305,4 @@ def test_the_bar_percent_and_bytes_are_untouched_by_the_change():
     """Everything left of the state column keeps rendering as before."""
     rendered = _stats("complete", completed=10, total=10)
     assert "100.0%" in rendered
-    assert "10.00 B / 10.00 B" in rendered
+    assert "10 B / 10 B" in rendered
