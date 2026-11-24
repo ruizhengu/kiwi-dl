@@ -46,6 +46,9 @@ def test_deterministic_failures_are_not_retried(exc):
     [
         pytest.param(requests.ConnectionError("reset"), id="connection-reset"),
         pytest.param(requests.Timeout("slow"), id="timeout"),
+        pytest.param(
+            requests.exceptions.ChunkedEncodingError("IncompleteRead"), id="chunked-encoding-drop"
+        ),
         pytest.param(CdnUrlExpired(message="expired"), id="cdn-url-expiry"),
         pytest.param(RetryableTransferError(message="upstream 503"), id="server-5xx"),
     ],
