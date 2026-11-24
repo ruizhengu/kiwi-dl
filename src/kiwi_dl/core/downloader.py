@@ -142,6 +142,10 @@ def _is_transient_chunk_failure(exc: BaseException) -> bool:
         (
             requests.ConnectionError,
             requests.Timeout,
+            # Mid-chunk TCP drops (urllib3 ProtocolError / IncompleteRead) are
+            # raised as ChunkedEncodingError, which does not subclass
+            # ConnectionError.
+            requests.exceptions.ChunkedEncodingError,
             # The URL is refreshed and the chunk genuinely can succeed next try.
             CdnUrlExpired,
             # 5xx only; `download_transport` raises the non-retryable type
