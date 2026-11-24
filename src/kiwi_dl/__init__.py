@@ -3,6 +3,6 @@
 Not affiliated with Mega Limited. Built on MegaBasterd-CLI by Kiaro Sama (MIT).
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __license__ = "MIT"
 __url__ = "https://github.com/ruizhengu/kiwi-dl"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kiwi-dl"
-version = "0.2.0"
+version = "0.2.1"
 description = "Download public MEGA links from the terminal, with SmartProxy-style quota recovery. Not affiliated with Mega Limited."
 readme = "README.md"
 license = "MIT"

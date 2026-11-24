@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.1 - 2026-11-24
+
+### Bug fixes
+
+- **Retry mid-chunk TCP drops.** `requests.exceptions.ChunkedEncodingError`
+  (raised when MEGA's CDN drops a connection mid-chunk with `IncompleteRead`)
+  is now retried as a transient chunk failure instead of aborting the download
+  after a single attempt.
+- **Windows trailing `0x1A` preservation.** Opening the destination file for
+  `fsync` in `core/state.py` (and writing corruption backups in
+  `utils/corruption.py`) now passes `os.O_BINARY` on Windows, preventing CRT
+  text mode from stripping a trailing `0x1A` (Ctrl-Z) byte and tripping the
+  file MAC check.
+- **Windows startup log detection.** `cli.py` now recognizes `kiwi-dl.exe` and
+  `kdl.exe` when recording startup arguments.
+
+### Cleanup & packaging
+
+- Dropped the `tenacity` runtime dependency in favor of small bounded retry
+  loops in `core/api.py` and `core/downloader.py`.
+- Removed unused MegaBasterd-CLI leftovers (dead session/mutation API paths,
+  1.x compatibility shims, `kiwi-dl config migrate`, dead upload UI code, and
+  the unused external hashcash solver hook) and inlined `core/responses.py`,
+  `core/range_validation.py`, and `proxy/selector.py`.
+- Streamlined `README.md`, updated `install.sh` and the bug report template
+  for Windows and `v0.2.0+`.
+
 ## 0.2.0 - 2026-11-19
 
 ### Windows
