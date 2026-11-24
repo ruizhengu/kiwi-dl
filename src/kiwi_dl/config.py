@@ -463,8 +463,8 @@ class ConfigStore:
         the same lock hold that performs the replace also closes the window
         where another process corrupts or updates the file after validation.
 
-        `load()` deliberately does not touch `self._config`, so a pending
-        mutation from set/unset/reset survives this refresh.
+        `load()` deliberately does not touch `self._config`, so any pending
+        in-memory edits survive this refresh.
         """
         with self._locked():
             self.load()

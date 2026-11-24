@@ -39,11 +39,13 @@ REPO_SRC = str(Path(__file__).resolve().parents[1] / "src")
 
 def _run_in_subprocess(body: str, timeout: int = 60) -> subprocess.CompletedProcess:
     """Run a snippet in a genuinely separate process."""
-    script = textwrap.dedent(f"""
+    script = textwrap.dedent(
+        f"""
         import sys
         sys.path.insert(0, {REPO_SRC!r})
         {textwrap.indent(textwrap.dedent(body), "        ").lstrip()}
-        """)
+        """
+    )
     return subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
@@ -80,11 +82,13 @@ def test_a_second_process_cannot_claim_a_held_destination(tmp_path):
     target = tmp_path / "movie.mkv"
     claimed = claim_destination(target)
     try:
-        result = _run_in_subprocess(f"""
+        result = _run_in_subprocess(
+            f"""
             from pathlib import Path
             from kiwi_dl.utils.helpers import claim_destination
             print(claim_destination(Path({str(target)!r})))
-            """)
+            """
+        )
         assert result.returncode == 0, result.stderr
         other = result.stdout.strip()
     finally:
@@ -104,12 +108,14 @@ def test_the_two_processes_therefore_use_different_state_files(tmp_path):
     target = tmp_path / "movie.mkv"
     claimed = claim_destination(target)
     try:
-        result = _run_in_subprocess(f"""
+        result = _run_in_subprocess(
+            f"""
             from pathlib import Path
             from kiwi_dl.utils.helpers import claim_destination
             from kiwi_dl.core.state import state_path_for
             print(state_path_for(claim_destination(Path({str(target)!r}))))
-            """)
+            """
+        )
         assert result.returncode == 0, result.stderr
         other_state = result.stdout.strip()
     finally:

@@ -484,7 +484,9 @@ def _flush_transferred_data(state: TransferState) -> None:
     if state.transfer_type != "download":
         return
     try:
-        fd = os.open(state.destination, os.O_RDWR)
+        # O_BINARY is mandatory on Windows: without it, CRT text mode strips a
+        # trailing 0x1A (Ctrl-Z / DOS EOF) byte from the destination file!
+        fd = os.open(state.destination, os.O_RDWR | getattr(os, "O_BINARY", 0))
     except FileNotFoundError as exc:
         # The one tolerable open failure, and only while the snapshot vouches
         # for nothing: no destination yet AND no completed chunks. With chunks

@@ -68,12 +68,14 @@ def preserve_corrupt_file(path: Path, data: bytes) -> Path | None:
         suffix = "" if attempt == 0 else f".{attempt}"
         backup = path.parent / f"{path.name}.corrupt.{stamp}{suffix}-{digest}.json"
         try:
-            # 0o600: a corrupt config or queue can still contain secrets
-            # (connect_proxy_password, sealed enc_password blobs), so the
-            # preserved copy must not be readable by other users. Matches how
-            # the queue key file is created. Ignored on Windows, which has no
-            # POSIX mode bits.
-            fd = os.open(str(backup), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            # 0o600: a corrupt config or pool file can still contain proxy
+            # credentials, so the preserved copy must not be readable by other
+            # users. Ignored on Windows, which has no POSIX mode bits.
+            fd = os.open(
+                str(backup),
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                0o600,
+            )
         except FileExistsError:
             # Same content, same second, another process: adopt its file.
             if backup.exists() and backup.read_bytes() == data:
