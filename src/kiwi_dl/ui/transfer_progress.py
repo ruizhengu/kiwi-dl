@@ -18,19 +18,12 @@ from __future__ import annotations
 
 import threading
 import uuid
-from dataclasses import dataclass
 
 from .progress import MultiFileProgressView, ProgressFileState
 
 __all__ = ["TransferProgress", "TERMINAL_STATUSES"]
 
 TERMINAL_STATUSES = {"complete", "failed", "canceled", "skipped"}
-
-
-@dataclass
-class _Item:
-    key: str
-    state: ProgressFileState
 
 
 class TransferProgress:
@@ -49,7 +42,7 @@ class TransferProgress:
     ) -> None:
         self.title = title
         self.quiet = quiet
-        self._items: dict[str, _Item] = {}
+        self._items: dict[str, ProgressFileState] = {}
         self._order: list[str] = []
         self._lock = threading.RLock()
         self._closed = False
@@ -69,16 +62,13 @@ class TransferProgress:
         """Register one transfer item; returns its key."""
         with self._lock:
             key = uuid.uuid4().hex[:16]
-            self._items[key] = _Item(
+            self._items[key] = ProgressFileState(
                 key=key,
-                state=ProgressFileState(
-                    key=key,
-                    name=name,
-                    completed=0,
-                    total=int(total) if total is not None else None,
-                    speed=0.0,
-                    status=status,
-                ),
+                name=name,
+                completed=0,
+                total=int(total) if total is not None else None,
+                speed=0.0,
+                status=status,
             )
             self._order.append(key)
         self._push()
@@ -86,21 +76,21 @@ class TransferProgress:
 
     def set_item_name(self, key: str, name: str) -> None:
         with self._lock:
-            item = self._items.get(key)
-            if item is not None:
-                item.state.name = name
+            state = self._items.get(key)
+            if state is not None:
+                state.name = name
         self._push()
 
     def update_item(self, key: str, completed: int, total: int | None = None) -> None:
         """Producer snapshot: cumulative bytes for one item."""
         with self._lock:
-            item = self._items.get(key)
-            if item is None or item.state.status in TERMINAL_STATUSES:
+            state = self._items.get(key)
+            if state is None or state.status in TERMINAL_STATUSES:
                 return
-            item.state.completed = max(0, int(completed or 0))
+            state.completed = max(0, int(completed or 0))
             if total is not None:
-                item.state.total = int(total)
-            item.state.status = "active"
+                state.total = int(total)
+            state.status = "active"
         self._push()
 
     def finish_item(self, key: str, status: str = "complete") -> None:
@@ -108,20 +98,20 @@ class TransferProgress:
         if status not in TERMINAL_STATUSES:
             raise ValueError(f"Not a terminal status: {status}")
         with self._lock:
-            item = self._items.get(key)
-            if item is None or item.state.status in TERMINAL_STATUSES:
+            state = self._items.get(key)
+            if state is None or state.status in TERMINAL_STATUSES:
                 return
-            if status == "complete" and item.state.total is not None:
-                item.state.completed = max(item.state.completed, item.state.total)
-            item.state.speed = 0.0
-            item.state.status = status
+            if status == "complete" and state.total is not None:
+                state.completed = max(state.completed, state.total)
+            state.speed = 0.0
+            state.status = status
         self._push(force=True)
 
     # ------------------------------------------------------------------
     # Aggregation / rendering
     # ------------------------------------------------------------------
     def _snapshot(self) -> tuple[list[ProgressFileState], int, int | None, int, int, int]:
-        states = [self._items[k].state for k in self._order]
+        states = [self._items[k] for k in self._order]
         completed = sum(max(0, s.completed) for s in states)
         known_totals = [s.total for s in states if s.total is not None]
         total = sum(known_totals) if known_totals else None
@@ -174,8 +164,7 @@ class TransferProgress:
                 return
             self._closed = True
             auto_canceled = False
-            for item in self._items.values():
-                state = item.state
+            for state in self._items.values():
                 if state.status in TERMINAL_STATUSES:
                     continue
                 if state.total is not None and state.completed >= state.total and state.total > 0:
@@ -186,7 +175,7 @@ class TransferProgress:
                     state.status = "canceled"
                     auto_canceled = True
                 state.speed = 0.0
-            failed = any(i.state.status == "failed" for i in self._items.values())
+            failed = any(s.status == "failed" for s in self._items.values())
             effective_success = success and not failed and not auto_canceled
             self._final_success = effective_success
             view = self._view
@@ -216,7 +205,7 @@ class TransferProgress:
     # Introspection used by tests and summaries.
     def statuses(self) -> dict[str, str]:
         with self._lock:
-            return {k: self._items[k].state.status for k in self._order}
+            return {k: self._items[k].status for k in self._order}
 
     def final_success(self) -> bool | None:
         """Overall outcome computed by close(); None while still open."""

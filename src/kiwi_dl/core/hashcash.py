@@ -29,13 +29,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import logging
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
-
-log = logging.getLogger(__name__)
 
 # --- Protocol constants ------------------------------------------------------
 

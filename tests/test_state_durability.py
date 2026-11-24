@@ -190,6 +190,20 @@ def test_download_data_is_fsynced_before_the_state_file_is_replaced(tmp_path, mo
     assert events.index("fsync-data") < events.index("replace-state")
 
 
+def test_save_state_preserves_trailing_ctrl_z_byte(tmp_path):
+    """Windows CRT text mode strips a trailing 0x1A byte when O_BINARY is missing."""
+    destination = tmp_path / "ends_with_eof.bin"
+    payload = b"hello" + b"\x1a"
+    destination.write_bytes(payload)
+
+    state = _download_state(destination)
+    state.total_size = len(payload)
+    state.mark_chunk_done(0, MAC)
+    save_state(state)
+
+    assert destination.read_bytes() == payload
+
+
 # --------------------------------------------------------------------------
 # A1.4 - clear_state uses the save lock, and keeps the lock sidecar
 # --------------------------------------------------------------------------
